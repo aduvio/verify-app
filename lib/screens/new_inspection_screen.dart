@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'guided_inspection_screen.dart';
 
 import '../models/customer.dart';
 import '../models/vehicle.dart';
@@ -423,11 +424,9 @@ class _NewInspectionScreenState extends State<NewInspectionScreen> {
           child: FilledButton.icon(
             onPressed: readyToStart
                 ? () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'SCR-001 complete. SCR-002 will connect here.',
-                        ),
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const GuidedInspectionScreen(),
                       ),
                     );
                   }
