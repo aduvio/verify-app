@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../models/inspection_step.dart';
 import '../services/mock_recording_service.dart';
+import 'ai_review_screen.dart';
 
 class GuidedInspectionScreen extends StatefulWidget {
   const GuidedInspectionScreen({super.key});
@@ -472,11 +473,9 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                     child: FilledButton.icon(
                       onPressed: stageComplete && activeStep == null
                           ? () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'SCR-002 complete. SCR-003 AI Review will connect here.',
-                                  ),
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const AiReviewScreen(),
                                 ),
                               );
                             }
