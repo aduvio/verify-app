@@ -5,12 +5,14 @@ import 'customer_report_screen.dart';
 import '../models/ai_observation.dart';
 import '../models/inspection_session.dart';
 import '../services/mock_ai_review_service.dart';
+import '../services/inspection_repository.dart';
 import '../widgets/session_banner.dart';
 import '../widgets/reason_dialog.dart';
 
 class AiReviewScreen extends StatefulWidget {
   final InspectionSession session;
-  const AiReviewScreen({super.key, required this.session});
+  final InspectionRepository? repository;
+  const AiReviewScreen({super.key, required this.session, this.repository});
   @override
   State<AiReviewScreen> createState() => _AiReviewScreenState();
 }
@@ -385,8 +387,10 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                       onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) =>
-                              CustomerReportScreen(session: session),
+                          builder: (_) => CustomerReportScreen(
+                            session: session,
+                            repository: widget.repository,
+                          ),
                         ),
                       ),
                       child: const Text('VIEW DEMO CUSTOMER REPORT'),

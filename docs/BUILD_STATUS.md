@@ -1,10 +1,10 @@
 # Project Verify — foundation repairs
 
-Current status is summarized in the SCR-004 section at the end. Earlier dated
+Current status is summarized in the SCR-005 section at the end. Earlier dated
 sections record the foundation checkpoint's behavior and validation history.
 
 Scope: SCR-001 intake, SCR-002 guided inspection, SCR-003 advisory review,
-SCR-004 demo customer preview and simulated delivery.
+SCR-004 demo customer preview and simulated delivery, SCR-005 demo completion.
 The app is a demo prototype, not a completed service-verification product.
 
 ## Approved product direction
@@ -290,3 +290,99 @@ Manual checks:
    was sent. Enable the failure switch, review again and verify honest failure.
 3. Change a contact or return to SCR-003 and change the recommendation; confirm
    renewed manual approval and preview/recipient review are required.
+
+## SCR-005 demo completion — September 9, 2026
+
+### Approved SCR-004 checkpoint
+
+Committed as `746d442` (Add approved demo customer report and simulated delivery)
+and successfully pushed to the existing origin on `codex/demo-foundation-repairs`.
+Checkpoint checks passed: analyzer no issues (7.1s), all 58 tests (8s), web build
+(38.1s). No merge, force push, remote change or generated builds in the commit.
+
+### Implemented
+
+- A successful simulated send for the currently approved snapshot opens SCR-005.
+  Failed/stale operations remain on SCR-004 and cannot create completion records.
+- Immutable per-attempt records retain snapshot, inspection/revision, selected
+  method, actual recipient, start/finish time and simulated outcome. Prior failed,
+  stale and successful attempts survive retries and reopening.
+- Inspection completion is a separate record referencing the successful attempt
+  and immutable report snapshot. Its timestamp matches the recorded completion
+  event; rebuilds do not create new times. No real inspection approval is issued.
+- Completion shows session-derived demo identity, summary and recommendations,
+  honest delivery/video/hosting status, and a collapsed staff-only section with
+  separate internal notes, advisory AI scenarios, attempt history and actual
+  event/time/actor details. Staff data never enters the customer projection.
+- Completed sessions reject edits and duplicate sends. Completion replaces prior
+  routes; ordinary Back cannot reopen the inspection. Pending send blocks Back.
+- REOPEN INSPECTION requires a reason and explicit confirmation. Cancel changes
+  nothing. Confirming records the technician/time/reason, creates a new editable
+  revision under the same inspection ID, retains evidence and old completion
+  snapshots, and clears dependent approvals. Returns to guided inspection, where
+  the existing review sequence must be completed before another simulated send.
+- START NEW INSPECTION retains the old record in the same in-memory repository
+  and returns to a clean SCR-001 session with unique ID, same technician/store,
+  and no prior intake, notes, checks, decisions, approvals or delivery state.
+  Repeated requests for the same completed revision return the same new session.
+- VIEW HISTORY is only an explanatory placeholder. No SCR-006 exists.
+
+### Remaining limitations
+
+All records and audit history remain in process memory; refresh/close can lose
+them. No real recording, video playback, secure hosting, SMS/email, uploads,
+Square connection, live approval, authenticated identity or durable storage.
+The completion screen is a demo acknowledgment, not proof of real service or
+customer delivery. SCR-005 changes remain uncommitted pending user review.
+
+Files created: `lib/screens/inspection_complete_screen.dart`,
+`test/inspection_complete_test.dart`.
+Files modified: `lib/models/inspection_session.dart`,
+`lib/services/inspection_repository.dart`, the four existing screen files
+(`new_inspection_screen`, `guided_inspection_screen`, `ai_review_screen`,
+`customer_report_screen`), `AGENTS.md`, and this document.
+
+### Validation
+
+- Changed Dart files formatted; no dependencies added or tools upgraded.
+- `flutter analyze --no-pub`: passed, no issues (6.3s).
+- `flutter test --no-pub`: **68 tests passed** (8s), all 58 previous tests retained
+  unchanged plus ten completion/reopen/repository/widget regressions. Early
+  off-screen test tap warnings were corrected with precise header/physical-click
+  targets; final run had no such warnings. No assertions or errors suppressed.
+- `flutter build web --no-pub`: passed (35.3s), with successful Wasm dry run;
+  not a Wasm runtime test. Prior optional Chrome-runner stall remains historical
+  and unperformed, not a claimed pass.
+- Compiled browser: completed SCR-001 intake, all required SCR-002 checks,
+  SCR-003 reasoned dismissal/manual approval, SCR-004 failed simulation (stayed
+  on report), successful retry -> SCR-005. Checked actual customer/vehicle,
+  revision 28, recipient/method and fixed completion timestamp. Staff expansion
+  showed the genuine failed/successful attempts, internal note and audit events.
+- Browser reopening: cancel retained the same revision/time; empty submission
+  required reason and confirmation. Confirmed reopen retained identity/evidence/
+  notes and reset all four approvals. Fresh review/send produced revision 33
+  under the same ID. Widget/model tests verify old immutable snapshot retention,
+  duplicate protection and ordinary Back safeguards.
+- Browser START NEW INSPECTION returned a blank SCR-001 with a different ID and
+  the same technician/store. Repository tests verify the old record remains
+  available and repeated requests create only one new session.
+- Browser completion layouts checked at 360×800 and 1440×1000, including phone
+  summary/actions. No visible overflow or logged runtime errors. Widget tests
+  also checked both widths with staff details expanded. Viewport override reset.
+- `git diff --check`: passed. SCR-005 remains uncommitted; only SCR-004 was pushed.
+
+Updated local preview: `http://127.0.0.1:8765/?completion-preview=20260909`.
+The separate tested tab is now at fresh SCR-001 after testing START NEW INSPECTION;
+its prior completed record remains in its in-memory repository. Earlier tabs were
+preserved and still run older code. New tabs start independent demo sessions.
+For an independent development preview: `flutter run -d chrome --no-pub`.
+
+Manual checks:
+1. On SCR-004, simulate failure and confirm it stays there. Disable failure,
+   confirm both review boxes and send again; SCR-005 should show the exact
+   recipient and honest simulated delivery/video/hosting status.
+2. On SCR-005, cancel REOPEN INSPECTION, then reopen with a reason and explicit
+   confirmation. Review retained evidence, complete fresh manual approvals and
+   send again; inspect staff attempt history for both revisions.
+3. START NEW INSPECTION should show a new ID with blank customer/vehicle and
+   no old notes or approval state. Back must not expose the previous completion.

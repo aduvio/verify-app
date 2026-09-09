@@ -11,4 +11,4 @@
 - Square remains the POS; integration is not implemented. Future customer report: simple page, one main video button, secure link, no customer account.
 - Never claim camera, glasses, AI, storage, Square, or delivery are live when mocked. Explicit demo completion must remain separate from real inspection approval.
 - Prefer existing dependencies; ask before adding one. Do not install/upgrade global tools. Do not delete/reset unrelated work or commit, push, merge, deploy, or send to customers without authorization.
-- Authorized scope now includes SCR-004 customer preview and simulated delivery only. Leave SCR-004 uncommitted for review; no SCR-005 or live delivery. Keep BUILD_STATUS current; validate with formatting, analysis, tests, and web build. Session storage is in memory, not durable.
+- Authorized scope includes SCR-005 demo completion, retained in-memory records and explicit reasoned reopening. Leave SCR-005 uncommitted for review; no SCR-006 or live delivery. Keep BUILD_STATUS current; validate with formatting, analysis, tests, and web build. Session storage is in memory, not durable.

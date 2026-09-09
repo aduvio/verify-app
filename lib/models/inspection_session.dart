@@ -12,6 +12,45 @@ import '../services/mock_delivery_service.dart';
 
 enum DeliveryChannel { sms, email }
 
+enum DeliveryAttemptStatus { pending, succeeded, failed, stale }
+
+/// Immutable record of one simulated operation, independent of inspection approval.
+class DeliveryAttempt {
+  final String id;
+  final ReportSnapshot snapshot;
+  final DeliveryChannel channel;
+  final String recipient;
+  final DateTime startedAt;
+  final DateTime? finishedAt;
+  final DeliveryAttemptStatus status;
+  const DeliveryAttempt({
+    required this.id,
+    required this.snapshot,
+    required this.channel,
+    required this.recipient,
+    required this.startedAt,
+    this.finishedAt,
+    this.status = DeliveryAttemptStatus.pending,
+  });
+  DeliveryAttempt finish(DeliveryAttemptStatus result, DateTime at) =>
+      DeliveryAttempt(
+        id: id,
+        snapshot: snapshot,
+        channel: channel,
+        recipient: recipient,
+        startedAt: startedAt,
+        finishedAt: at,
+        status: result,
+      );
+}
+
+class InspectionCompletion {
+  final ReportSnapshot snapshot;
+  final DeliveryAttempt delivery;
+  final DateTime completedAt;
+  const InspectionCompletion(this.snapshot, this.delivery, this.completedAt);
+}
+
 class ReportSnapshot {
   final String inspectionId;
   final int revision;
@@ -96,6 +135,38 @@ class InspectionSession extends ChangeNotifier {
   final DataProvenance intakeProvenance = DataProvenance.sample;
   bool _active = true;
   bool get active => _active;
+  bool get editable => active && _completion == null;
+  InspectionCompletion? _completion;
+  InspectionCompletion? get completion => _completion;
+  final List<InspectionCompletion> _completedRevisions = [];
+  List<InspectionCompletion> get completedRevisions =>
+      List.unmodifiable(_completedRevisions);
+  final List<DeliveryAttempt> _deliveryAttempts = [];
+  List<DeliveryAttempt> get deliveryAttempts =>
+      List.unmodifiable(_deliveryAttempts);
+  bool get completionCurrent =>
+      _completion != null &&
+      demoApproved &&
+      _completion!.snapshot.inspectionId == id &&
+      _completion!.snapshot.revision == reportRevision;
+
+  bool reopen(String reason, {required int completedRevision}) {
+    if (!completionCurrent || sending || completedRevision != reportRevision) {
+      return false;
+    }
+    if (reason.trim().isEmpty) {
+      throw ArgumentError('A reopening reason is required.');
+    }
+    _completion = null;
+    _invalidate('inspection explicitly reopened');
+    _event('demo_inspection_reopened', {
+      'reason': reason.trim(),
+      'previousRevision': '$completedRevision',
+      'revision': '$reportRevision',
+    });
+    return true;
+  }
+
   Customer? _customer;
   Vehicle? _vehicle;
   Customer? get customer => _customer;
@@ -176,6 +247,7 @@ class InspectionSession extends ChangeNotifier {
       _reportSnapshot?.inspectionId == id &&
       _reportSnapshot?.revision == reportRevision;
   bool get canSimulateSend =>
+      editable &&
       reportCurrent &&
       recipientProblem == null &&
       _deliveryConfirmations.every((v) => v) &&
@@ -188,7 +260,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   bool prepareReport() {
-    if (!demoApproved) return false;
+    if (!editable || !demoApproved || sending) return false;
     _reportSnapshot = ReportSnapshot(
       id,
       reportRevision,
@@ -201,7 +273,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void selectDeliveryChannel(DeliveryChannel channel) {
-    if (!active || sending || channel == _deliveryChannel) return;
+    if (!editable || sending || channel == _deliveryChannel) return;
     _deliveryChannel = channel;
     _deliveryConfirmations.fillRange(0, 2, false);
     _deliveryMessage = null;
@@ -209,7 +281,10 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setDeliveryConfirmation(int index, bool value) {
-    if (!reportCurrent || sending || (value && recipientProblem != null)) {
+    if (!editable ||
+        !reportCurrent ||
+        sending ||
+        (value && recipientProblem != null)) {
       return;
     }
     _deliveryConfirmations[index] = value;
@@ -224,14 +299,31 @@ class InspectionSession extends ChangeNotifier {
   Future<bool> simulateDelivery(DeliveryService service) async {
     if (!canSimulateSend) return false;
     final revision = reportRevision;
-    final snapshot = _reportSnapshot;
+    final snapshot = _reportSnapshot!;
     final contact = recipient;
     final channel = deliveryChannel;
     _sending = true;
     _deliveryMessage = null;
+    final attempt = DeliveryAttempt(
+      id: '$id-d${_deliveryAttempts.length + 1}',
+      snapshot: snapshot,
+      channel: channel,
+      recipient: contact,
+      startedAt: clock(),
+    );
+    final attemptIndex = _deliveryAttempts.length;
+    _deliveryAttempts.add(attempt);
+    DeliveryAttempt finish(DeliveryAttemptStatus status, DateTime at) {
+      final finished = attempt.finish(status, at);
+      _deliveryAttempts[attemptIndex] = finished;
+      return finished;
+    }
+
     _event('demo_delivery_started', {
       'revision': '$revision',
       'channel': channel.name,
+      'attempt': attempt.id,
+      'recipient': contact,
     });
     bool current() =>
         reportCurrent &&
@@ -248,18 +340,36 @@ class InspectionSession extends ChangeNotifier {
         recipient: contact,
       );
       if (!current()) {
+        finish(DeliveryAttemptStatus.stale, clock());
         _deliveryMessage = 'Session changed. Review the updated report and recipient again. Nothing was sent.';
         _event('demo_delivery_stale', {'revision': '$revision'});
         return false;
       }
       _deliveryMessage =
           'Simulation complete. Nothing was sent to the customer.';
-      _event('demo_delivery_completed', {
-        'revision': '$revision',
-        'actualSend': 'false',
-      });
+      final at = clock();
+      final delivered = finish(DeliveryAttemptStatus.succeeded, at);
+      _completion = InspectionCompletion(snapshot, delivered, at);
+      _completedRevisions.add(_completion!);
+      _event(
+        'demo_inspection_completed',
+        {
+          'revision': '$revision',
+          'attempt': attempt.id,
+          'realInspectionApproval': 'false',
+        },
+        null,
+        at,
+      );
+      _event(
+        'demo_delivery_completed',
+        {'revision': '$revision', 'actualSend': 'false'},
+        null,
+        at,
+      );
       return true;
     } catch (_) {
+      finish(DeliveryAttemptStatus.failed, clock());
       _deliveryMessage =
           'Simulation failed. Nothing was sent. Review and try again.';
       _event('demo_delivery_failed', {
@@ -382,8 +492,9 @@ class InspectionSession extends ChangeNotifier {
     String action, [
     Map<String, String> details = const {},
     String? actor,
+    DateTime? at,
   ]) {
-    updatedAt = clock();
+    updatedAt = at ?? clock();
     _audit.add(AuditEvent(updatedAt, actor ?? technician, action, details));
     notifyListeners();
   }
@@ -397,7 +508,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setCustomer(Customer value) {
-    if (!active) return;
+    if (!editable) return;
     _customer = value;
     _invalidate('customer changed');
     _event('demo_customer_selected', {
@@ -407,7 +518,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setVehicle(Vehicle value, List<VerificationItem> items) {
-    if (!active) return;
+    if (!editable) return;
     _vehicle = value;
     _verificationItems = List.of(items);
     // Evidence from a previous vehicle cannot qualify the changed intake.
@@ -433,14 +544,14 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void simulateSquare() {
-    if (!active) return;
+    if (!editable) return;
     _squareSimulated = true;
     _invalidate('simulated POS changed');
     _event('square_simulated');
   }
 
   void setFilterUnderHood(bool value) {
-    if (!active || _filterUnderHood == value) return;
+    if (!editable || _filterUnderHood == value) return;
     _filterUnderHood = value;
     for (final id in ['oil_filter', 'top_filter']) {
       step(id).status = InspectionStepStatus.pending;
@@ -455,7 +566,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setStage(bool hood) {
-    if (!active) return;
+    if (!editable) return;
     if (hood && !underVehicleSteps.every((s) => s.isComplete)) return;
     _underHoodStage = hood;
     _event('stage_changed', {'underHood': '$hood'});
@@ -478,7 +589,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   bool canCapture(String stepId) =>
-      active &&
+      editable &&
       demoReady &&
       currentSteps.any((s) => s.id == stepId) &&
       (stepId != 'caps_touch' ||
@@ -540,7 +651,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void recordingStarted(CaptureAttempt a) {
-    if (!active ||
+    if (!editable ||
         !_attempts.contains(a) ||
         a.status != CaptureStatus.starting) {
       return;
@@ -550,7 +661,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void finishCapture(CaptureAttempt a, Duration duration) {
-    if (!active ||
+    if (!editable ||
         !_attempts.contains(a) ||
         !(a.status == CaptureStatus.starting ||
             a.status == CaptureStatus.recording)) {
@@ -572,7 +683,9 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void acceptCapture(CaptureAttempt a) {
-    if (!active || !_attempts.contains(a) || a.status != CaptureStatus.review) {
+    if (!editable ||
+        !_attempts.contains(a) ||
+        a.status != CaptureStatus.review) {
       return;
     }
     for (final previous in _attempts.where(
@@ -591,7 +704,9 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void retryCapture(CaptureAttempt a) {
-    if (!active || !_attempts.contains(a) || a.status != CaptureStatus.review) {
+    if (!editable ||
+        !_attempts.contains(a) ||
+        a.status != CaptureStatus.review) {
       return;
     }
     a.status = CaptureStatus.superseded;
@@ -614,7 +729,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void confirmStatement(String id) {
-    if (!active || !currentSteps.any((s) => s.id == id) || usesVideo(id)) {
+    if (!editable || !currentSteps.any((s) => s.id == id) || usesVideo(id)) {
       return;
     }
     if (id == 'dipstick' &&
@@ -634,7 +749,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void failCheck(String id, String reason) {
-    if (!active) return;
+    if (!editable) return;
     if (reason.trim().isEmpty) {
       throw ArgumentError('A failure reason is required.');
     }
@@ -648,7 +763,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void loadObservations(List<AiObservation> values) {
-    if (!active || observationsLoaded) return;
+    if (!editable || observationsLoaded) return;
     _observations.addAll(values);
     observationsLoaded = true;
     _invalidate('demo observations loaded');
@@ -664,7 +779,7 @@ class InspectionSession extends ChangeNotifier {
     String reason, {
     bool notActualConcern = false,
   }) {
-    if (!active || !_observations.contains(o)) return;
+    if (!editable || !_observations.contains(o)) return;
     if (reason.trim().isEmpty) {
       throw ArgumentError('A technician reason is required.');
     }
@@ -701,7 +816,7 @@ class InspectionSession extends ChangeNotifier {
     String recheck, {
     required bool recheckPassed,
   }) {
-    if (!active ||
+    if (!editable ||
         !_observations.contains(o) ||
         !o.concernEstablished ||
         o.status != AiObservationStatus.confirmed ||
@@ -726,7 +841,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setNote(String text, {required bool customerVisible, String? author}) {
-    if (!active) return;
+    if (!editable) return;
     final actor = (author ?? technician).trim();
     if (actor.isEmpty) throw ArgumentError('An author is required.');
     final note = SessionNote(text, actor, clock());
@@ -743,7 +858,7 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void setApproval(int index, bool value) {
-    if (!active ||
+    if (!editable ||
         (value && (!allChecksComplete || !flagsResolved || !demoReady))) {
       return;
     }
@@ -755,13 +870,14 @@ class InspectionSession extends ChangeNotifier {
   }
 
   bool completeDemo() {
-    if (!canCompleteDemo) return false;
+    if (!editable || !canCompleteDemo) return false;
     _demoApproved = true;
     _event('demo_review_completed', {'realApproval': 'false'});
     return true;
   }
 
   void abandon() {
+    if (!editable) return;
     _active = false;
     for (final a in _attempts) {
       cancelCapture(a);

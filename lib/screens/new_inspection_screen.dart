@@ -273,8 +273,10 @@ class _NewInspectionScreenState extends State<NewInspectionScreen> {
                   onPressed: !busy && session.demoReady
                       ? () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) =>
-                                GuidedInspectionScreen(session: session),
+                            builder: (_) => GuidedInspectionScreen(
+                              session: session,
+                              repository: repository,
+                            ),
                           ),
                         )
                       : null,

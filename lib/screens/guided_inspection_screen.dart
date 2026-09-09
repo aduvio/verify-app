@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/inspection_session.dart';
 import '../models/inspection_step.dart';
 import '../services/capture_controller.dart';
+import '../services/inspection_repository.dart';
 import '../services/mock_recording_service.dart';
 import '../widgets/session_banner.dart';
 import '../widgets/reason_dialog.dart';
@@ -10,10 +11,12 @@ import 'ai_review_screen.dart';
 
 class GuidedInspectionScreen extends StatefulWidget {
   final InspectionSession session;
+  final InspectionRepository? repository;
   final RecordingService? recordingService;
   const GuidedInspectionScreen({
     super.key,
     required this.session,
+    this.repository,
     this.recordingService,
   });
   @override
@@ -330,8 +333,10 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                       onPressed: session.allChecksComplete && free
                           ? () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    AiReviewScreen(session: session),
+                                builder: (_) => AiReviewScreen(
+                                  session: session,
+                                  repository: widget.repository,
+                                ),
                               ),
                             )
                           : null,
