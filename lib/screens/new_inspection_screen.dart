@@ -1,195 +1,141 @@
 import 'package:flutter/material.dart';
-import 'guided_inspection_screen.dart';
 
-import '../models/customer.dart';
-import '../models/vehicle.dart';
-import '../models/verification_item.dart';
+import '../models/inspection_session.dart';
+import '../services/inspection_repository.dart';
 import '../services/mock_customer_service.dart';
 import '../services/mock_vehicle_service.dart';
 import '../services/mock_verification_service.dart';
 import '../widgets/readiness_row.dart';
 import '../widgets/step_circle.dart';
 import '../widgets/verification_row.dart';
+import '../widgets/session_banner.dart';
+import 'guided_inspection_screen.dart';
 
 class NewInspectionScreen extends StatefulWidget {
-  const NewInspectionScreen({super.key});
-
+  final InspectionSession? session;
+  final InspectionRepository? repository;
+  const NewInspectionScreen({super.key, this.session, this.repository});
   @override
   State<NewInspectionScreen> createState() => _NewInspectionScreenState();
 }
 
 class _NewInspectionScreenState extends State<NewInspectionScreen> {
-  final phoneController = TextEditingController();
-
-  final customerService = MockCustomerService();
-  final vehicleService = MockVehicleService();
-  final verificationService = MockVerificationService();
-
-  Customer? customer;
-  Vehicle? vehicle;
-  List<VerificationItem> verificationItems = [];
-
-  bool squareLinked = false;
+  late final repository = widget.repository ?? InMemoryInspectionRepository();
+  late final session =
+      widget.session ?? repository.create(technician: 'Armand');
+  late final phoneController = TextEditingController(
+    text: session.customer?.phone ?? '',
+  );
   bool busy = false;
+  String? error;
 
-  bool get customerFound => customer != null;
-  bool get vinCaptured => vehicle != null;
-  bool get vehicleDecoded => vehicle != null;
-
-  bool get oilSpecsVerified =>
-      verificationItems.any((item) =>
-          item.label == 'Oil Viscosity' &&
-          item.status == VerificationStatus.verified) &&
-      verificationItems.any((item) =>
-          item.label == 'Oil Capacity' &&
-          item.status == VerificationStatus.verified);
-
-  bool get filterVerified =>
-      verificationItems.any((item) =>
-          item.label == 'Oil Filter' &&
-          item.status == VerificationStatus.verified);
-
-  bool get readyToStart =>
-      customerFound &&
-      vinCaptured &&
-      vehicleDecoded &&
-      oilSpecsVerified &&
-      filterVerified &&
-      squareLinked;
-
-  Future<void> searchCustomer() async {
-    setState(() => busy = true);
-    final result =
-        await customerService.findCustomerByPhone(phoneController.text);
-    if (!mounted) return;
+  Future<void> runIntake(Future<void> Function() operation) async {
+    if (busy) return;
     setState(() {
-      customer = result;
-      busy = false;
+      busy = true;
+      error = null;
     });
+    try {
+      await operation();
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Demo data could not load. Please retry.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
-  Future<void> scanVin() async {
-    setState(() => busy = true);
-    final vehicleResult = await vehicleService.scanVinBarcode();
-    final verificationResult = await verificationService.verifyVehicle();
-    if (!mounted) return;
-    setState(() {
-      vehicle = vehicleResult;
-      verificationItems = verificationResult;
-      busy = false;
-    });
-  }
-
-  void linkSquare() {
-    setState(() => squareLinked = true);
-  }
-
+  Future<void> searchCustomer() => runIntake(() async {
+    final result = await MockCustomerService().findCustomerByPhone(
+      phoneController.text,
+    );
+    if (mounted && session.active) session.setCustomer(result);
+  });
+  Future<void> scanVin() => runIntake(() async {
+    final vehicle = await MockVehicleService().scanVinBarcode();
+    final items = await MockVerificationService().verifyVehicle();
+    if (mounted && session.active) session.setVehicle(vehicle, items);
+  });
+  void unavailable(String action) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        '$action is not implemented. Use the explicitly labeled demo sample controls.',
+      ),
+    ),
+  );
   @override
   void dispose() {
     phoneController.dispose();
     super.dispose();
   }
 
+  Widget card(String title, List<Widget> children) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 14),
+          ...children,
+        ],
+      ),
+    ),
+  );
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: session,
+    builder: (context, _) => Scaffold(
       backgroundColor: const Color(0xfff5f7fa),
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.verified_user, color: Colors.blue, size: 32),
-            SizedBox(width: 10),
-            Text(
-              'Project Verify',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 20),
-            child: Center(
-              child: Text(
-                'Costa Oil Change - Chalmette   |   Tech: Armand',
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1050),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    _buildProgress(),
-                    const SizedBox(height: 18),
-                    _buildCustomerCard(),
-                    const SizedBox(height: 18),
-                    _buildVehicleCard(),
-                    const SizedBox(height: 18),
-                    _buildVerificationCard(),
-                    const SizedBox(height: 18),
-                    _buildSquareCard(),
-                    const SizedBox(height: 18),
-                    _buildReadinessCard(),
-                    const SizedBox(height: 18),
-                    _buildStartButton(),
-                    const SizedBox(height: 30),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (busy)
-            const ColoredBox(
-              color: Color(0x22000000),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProgress() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            StepCircle(number: '1', label: 'Customer', active: true),
-            StepCircle(number: '2', label: 'Vehicle', active: true),
-            StepCircle(number: '3', label: 'Inspection'),
-            StepCircle(number: '4', label: 'AI Review'),
-            StepCircle(number: '5', label: 'Report'),
-          ],
+        title: const Text(
+          'Project Verify',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-    );
-  }
-
-  Widget _buildCustomerCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'CUSTOMER',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 14),
-            Row(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1050),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: TextField(
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceAround,
+                      spacing: 18,
+                      runSpacing: 12,
+                      children: const [
+                        StepCircle(
+                          number: '1',
+                          label: 'Customer',
+                          active: true,
+                        ),
+                        StepCircle(number: '2', label: 'Vehicle', active: true),
+                        StepCircle(number: '3', label: 'Inspection'),
+                        StepCircle(number: '4', label: 'AI Review'),
+                        StepCircle(number: '5', label: 'Report'),
+                      ],
+                    ),
+                  ),
+                ),
+                SessionBanner(session: session),
+                if (busy) const LinearProgressIndicator(),
+                if (error != null)
+                  Text(error!, style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: 18),
+                card('CUSTOMER', [
+                  TextField(
                     controller: phoneController,
                     keyboardType: TextInputType.phone,
                     decoration: const InputDecoration(
@@ -198,256 +144,157 @@ class _NewInspectionScreenState extends State<NewInspectionScreen> {
                       prefixIcon: Icon(Icons.phone),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: busy ? null : searchCustomer,
-                    icon: const Icon(Icons.search),
-                    label: const Text('SEARCH'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: busy ? null : searchCustomer,
-              icon: const Icon(Icons.person_add),
-              label: const Text('NEW CUSTOMER'),
-            ),
-            if (customer != null) ...[
-              const Divider(height: 30),
-              ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.person)),
-                title: Text(
-                  customer!.displayName,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text(
-                  '${customer!.phone}\n${customer!.email ?? ''}\nExisting customer data will eventually come from Square.',
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'VEHICLE IDENTIFICATION',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 64,
-              child: FilledButton.icon(
-                onPressed: busy ? null : scanVin,
-                icon: const Icon(Icons.qr_code_scanner, size: 28),
-                label: const Text(
-                  'SCAN VIN BARCODE',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('SCAN LICENSE PLATE'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : scanVin,
-                    icon: const Icon(Icons.keyboard),
-                    label: const Text('ENTER VIN MANUALLY'),
-                  ),
-                ),
-              ],
-            ),
-            if (vehicle != null) ...[
-              const Divider(height: 30),
-              ListTile(
-                leading: const Icon(
-                  Icons.directions_car,
-                  size: 36,
-                  color: Colors.blue,
-                ),
-                title: Text(
-                  vehicle!.displayName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-                subtitle: Text(
-                  'VIN: ${vehicle!.vin}\n${vehicle!.engine}   •   ${vehicle!.drivetrain}',
-                ),
-                trailing: const Chip(label: Text('VIN DECODED')),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVerificationCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.fact_check),
-                SizedBox(width: 8),
-                Text(
-                  'VEHICLE VERIFICATION',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'AMSOIL is the primary oil source. ShowMeTheParts is restricted to Service Champ filters.',
-            ),
-            const Divider(height: 28),
-            if (verificationItems.isEmpty)
-              const Text('Scan the VIN to begin vehicle verification.')
-            else
-              ...verificationItems.map(
-                (item) => VerificationRow(item: item),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSquareCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            const Icon(Icons.link, color: Colors.green, size: 32),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'SQUARE / POS',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    squareLinked
-                        ? 'Mock Square transaction linked.'
-                        : 'Square is not linked yet.',
-                  ),
-                ],
-              ),
-            ),
-            FilledButton.tonalIcon(
-              onPressed: linkSquare,
-              icon: const Icon(Icons.link),
-              label: Text(
-                squareLinked ? 'LINKED' : 'LINK SQUARE TRANSACTION',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReadinessCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'INSPECTION READINESS',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            ReadinessRow(
-              label: 'Customer identified',
-              complete: customerFound,
-            ),
-            ReadinessRow(label: 'VIN captured', complete: vinCaptured),
-            ReadinessRow(
-              label: 'Vehicle decoded',
-              complete: vehicleDecoded,
-            ),
-            ReadinessRow(
-              label: 'Oil specifications verified',
-              complete: oilSpecsVerified,
-            ),
-            ReadinessRow(
-              label: 'Service Champ filter verified',
-              complete: filterVerified,
-            ),
-            ReadinessRow(
-              label: 'Square/customer information linked',
-              complete: squareLinked,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStartButton() {
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          height: 64,
-          child: FilledButton.icon(
-            onPressed: readyToStart
-                ? () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const GuidedInspectionScreen(),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: busy ? null : searchCustomer,
+                        icon: const Icon(Icons.search),
+                        label: const Text('LOAD DEMO CUSTOMER'),
                       ),
-                    );
-                  }
-                : null,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text(
-              'START INSPECTION',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      OutlinedButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => unavailable('New customer creation'),
+                        icon: const Icon(Icons.person_add),
+                        label: const Text('NEW CUSTOMER'),
+                      ),
+                    ],
+                  ),
+                  if (session.customer != null) ...[
+                    const Divider(height: 30),
+                    Text(
+                      session.customer!.displayName,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      '${session.customer!.phone}\n${session.customer!.email ?? ''}\nDEMO sample customer; phone is user-entered. No Square lookup.',
+                    ),
+                  ],
+                ]),
+                const SizedBox(height: 18),
+                card('VEHICLE IDENTIFICATION', [
+                  FilledButton.icon(
+                    onPressed: busy ? null : scanVin,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('SIMULATE VIN SCAN'),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => unavailable('License plate scanning'),
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('SCAN LICENSE PLATE'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => unavailable('Manual VIN decoding'),
+                        icon: const Icon(Icons.keyboard),
+                        label: const Text('ENTER VIN MANUALLY'),
+                      ),
+                    ],
+                  ),
+                  if (session.vehicle != null) ...[
+                    const Divider(height: 30),
+                    Text(
+                      session.vehicle!.displayName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                    Text(
+                      'Sample VIN: ${session.vehicle!.vin}\n${session.vehicle!.engine} • ${session.vehicle!.drivetrain}',
+                    ),
+                    const Text('DEMO VIN DECODE • UNVERIFIED'),
+                  ],
+                ]),
+                const SizedBox(height: 18),
+                card('VEHICLE VERIFICATION', [
+                  const Text(
+                    'Future providers: AMSOIL for oil data; ShowMeTheParts for Service Champ filters only. Neither is connected.',
+                  ),
+                  const Divider(height: 28),
+                  if (session.verificationItems.isEmpty)
+                    const Text(
+                      'Simulate a VIN scan to display demo placeholders.',
+                    ),
+                  ...session.verificationItems.map(
+                    (item) => VerificationRow(item: item),
+                  ),
+                ]),
+                const SizedBox(height: 18),
+                card('SQUARE / POS', [
+                  Text(
+                    session.squareSimulated
+                        ? 'DEMO link acknowledged. No transaction exists or was linked.'
+                        : 'Square integration is not implemented.',
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.tonalIcon(
+                    onPressed: busy ? null : session.simulateSquare,
+                    icon: const Icon(Icons.link),
+                    label: Text(
+                      session.squareSimulated
+                          ? 'DEMO LINK ACKNOWLEDGED'
+                          : 'SIMULATE SQUARE LINK',
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 18),
+                card('DEMO INSPECTION READINESS', [
+                  const Text(
+                    'These checks unlock the prototype only. Real-service verification remains unavailable.',
+                  ),
+                  ReadinessRow(
+                    label: 'Demo customer selected',
+                    complete: session.customer != null,
+                  ),
+                  ReadinessRow(
+                    label: 'Simulated VIN decode loaded',
+                    complete: session.vehicle != null,
+                  ),
+                  ReadinessRow(
+                    label:
+                        'Unverified specification/filter placeholders loaded',
+                    complete: session.verificationItems.isNotEmpty,
+                  ),
+                  ReadinessRow(
+                    label: 'Simulated Square link acknowledged',
+                    complete: session.squareSimulated,
+                  ),
+                ]),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: !busy && session.demoReady
+                      ? () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                GuidedInspectionScreen(session: session),
+                          ),
+                        )
+                      : null,
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('START DEMO INSPECTION'),
+                  ),
+                ),
+                if (!session.demoReady)
+                  const Text(
+                    'Complete the demo readiness items above.',
+                    textAlign: TextAlign.center,
+                  ),
+                const SizedBox(height: 30),
+              ],
             ),
           ),
         ),
-        if (!readyToStart)
-          const Padding(
-            padding: EdgeInsets.only(top: 10),
-            child: Text(
-              'Complete all required items above to start the inspection.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-      ],
-    );
-  }
+      ),
+    ),
+  );
 }

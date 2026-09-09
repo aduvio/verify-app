@@ -4,11 +4,7 @@ class ReadinessRow extends StatelessWidget {
   final String label;
   final bool complete;
 
-  const ReadinessRow({
-    super.key,
-    required this.label,
-    required this.complete,
-  });
+  const ReadinessRow({super.key, required this.label, required this.complete});
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +17,7 @@ class ReadinessRow extends StatelessWidget {
             color: complete ? Colors.green : Colors.grey,
           ),
           const SizedBox(width: 10),
-          Text(label),
+          Expanded(child: Text(label)),
         ],
       ),
     );

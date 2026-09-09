@@ -8,31 +8,31 @@ class MockVerificationService {
         label: 'Oil Viscosity',
         value: 'SAMPLE - pending live AMSOIL',
         source: 'AMSOIL',
-        status: VerificationStatus.verified,
+        status: VerificationStatus.notAvailable,
       ),
       VerificationItem(
         label: 'Oil Capacity',
         value: 'SAMPLE - pending live AMSOIL',
         source: 'AMSOIL',
-        status: VerificationStatus.verified,
+        status: VerificationStatus.notAvailable,
       ),
       VerificationItem(
         label: 'Oil Filter',
         value: 'Service Champ - mock data',
         source: 'ShowMeTheParts',
-        status: VerificationStatus.verified,
+        status: VerificationStatus.notAvailable,
       ),
       VerificationItem(
         label: 'Air Filter',
         value: 'Service Champ - mock data',
         source: 'ShowMeTheParts',
-        status: VerificationStatus.verified,
+        status: VerificationStatus.notAvailable,
       ),
       VerificationItem(
         label: 'Cabin Air Filter',
         value: 'Service Champ - mock data',
         source: 'ShowMeTheParts',
-        status: VerificationStatus.verified,
+        status: VerificationStatus.notAvailable,
       ),
     ];
   }

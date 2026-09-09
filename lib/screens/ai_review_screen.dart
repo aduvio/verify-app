@@ -1,525 +1,390 @@
 import 'package:flutter/material.dart';
 
 import '../models/ai_observation.dart';
+import '../models/inspection_session.dart';
 import '../services/mock_ai_review_service.dart';
+import '../widgets/session_banner.dart';
+import '../widgets/reason_dialog.dart';
 
 class AiReviewScreen extends StatefulWidget {
-  const AiReviewScreen({super.key});
-
+  final InspectionSession session;
+  const AiReviewScreen({super.key, required this.session});
   @override
   State<AiReviewScreen> createState() => _AiReviewScreenState();
 }
 
 class _AiReviewScreenState extends State<AiReviewScreen> {
-  final MockAiReviewService reviewService = MockAiReviewService();
-
-  bool loading = true;
-  List<AiObservation> observations = [];
-
-  bool reviewedAllMedia = false;
-  bool actionedFlags = false;
-  bool infoAccurate = false;
-  bool approveForReport = false;
-
+  InspectionSession get session => widget.session;
+  late final internalController = TextEditingController(
+    text: session.internalNote?.text ?? '',
+  );
+  late final recommendationController = TextEditingController(
+    text: session.customerRecommendation?.text ?? '',
+  );
+  bool loading = false;
+  String? error;
   @override
   void initState() {
     super.initState();
-    _load();
+    load();
   }
 
-  Future<void> _load() async {
-    final result = await reviewService.loadObservations();
-    if (!mounted) return;
+  Future<void> load() async {
+    if (session.observationsLoaded || loading) return;
     setState(() {
-      observations = result;
-      loading = false;
+      loading = true;
+      error = null;
     });
-  }
-
-  bool get allRequiredObservationsResolved =>
-      observations.where((item) => item.requiresAction).every((item) => item.resolved);
-
-  bool get approvalComplete =>
-      reviewedAllMedia &&
-      actionedFlags &&
-      infoAccurate &&
-      approveForReport &&
-      allRequiredObservationsResolved;
-
-  void resolve(
-    AiObservation observation,
-    AiObservationStatus status,
-  ) {
-    setState(() {
-      observation.status = status;
-      actionedFlags = allRequiredObservationsResolved;
-    });
-  }
-
-  Color _statusColor(AiObservation observation) {
-    switch (observation.status) {
-      case AiObservationStatus.confirmed:
-        return Colors.green;
-      case AiObservationStatus.dismissed:
-        return Colors.grey;
-      case AiObservationStatus.furtherInspection:
-        return Colors.orange;
-      case AiObservationStatus.pending:
-        return observation.requiresAction ? Colors.red : Colors.blue;
-    }
-  }
-
-  String _statusText(AiObservation observation) {
-    switch (observation.status) {
-      case AiObservationStatus.confirmed:
-        return 'CONFIRMED';
-      case AiObservationStatus.dismissed:
-        return 'DISMISSED';
-      case AiObservationStatus.furtherInspection:
-        return 'FURTHER INSPECTION';
-      case AiObservationStatus.pending:
-        return observation.requiresAction ? 'REQUIRES ACTION' : 'AI OBSERVED';
+    try {
+      final values = await MockAiReviewService().loadObservations();
+      if (mounted && session.active) session.loadObservations(values);
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Demo observations could not load. Retry.');
+      }
+    } finally {
+      if (mounted) setState(() => loading = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xfff5f7fa),
-      appBar: AppBar(
-        title: const Text(
-          'Project Verify — AI Review',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 20),
-            child: Center(child: Text('Inspection ID: DEMO-001')),
+  void dispose() {
+    internalController.dispose();
+    recommendationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> decide(
+    AiObservation observation,
+    AiObservationStatus assessment,
+  ) async {
+    final values = await requestReasons(
+      context,
+      'Technician assessment: ${assessment.label}',
+      ['Technician reason (required)'],
+      requiredConfirmation: assessment == AiObservationStatus.dismissed
+          ? 'I determined this observation is not an actual concern. This also corrects any earlier mistaken assessment.'
+          : null,
+    );
+    if (!mounted || values == null) return;
+    session.decide(
+      observation,
+      assessment,
+      values.single,
+      notActualConcern: assessment == AiObservationStatus.dismissed,
+    );
+  }
+
+  Future<void> address(AiObservation observation) async {
+    final values = await requestReasons(
+      context,
+      'Record simulated correction and recheck',
+      [
+        'Simulated correction description (required)',
+        'Simulated recheck description and result (required)',
+      ],
+      requiredConfirmation: 'I performed the recheck and confirm this concern is cleared in the demo.',
+      allowBlockingRecheck: true,
+    );
+    if (!mounted || values == null) return;
+    session.addressConcern(
+      observation,
+      values[0],
+      values[1],
+      recheckPassed: values[2] == 'true',
+    );
+  }
+
+  Widget card(String title, List<Widget> children, {Color? color}) => Card(
+    color: color,
+    child: Padding(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 12),
+          ...children,
         ],
       ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1000),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildHeader(),
-                      const SizedBox(height: 16),
-                      _buildSummary(),
-                      const SizedBox(height: 16),
-                      _buildObservations(),
-                      const SizedBox(height: 16),
-                      _buildMedia(),
-                      const SizedBox(height: 16),
-                      _buildNotes(),
-                      const SizedBox(height: 16),
-                      _buildApproval(),
-                      const SizedBox(height: 16),
-                      _buildNextButton(),
-                      const SizedBox(height: 30),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-    );
-  }
+    ),
+  );
 
-  Widget _buildHeader() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Wrap(
-          spacing: 30,
-          runSpacing: 14,
-          children: [
-            _InfoItem(label: 'Customer', value: 'Sample Customer'),
-            _InfoItem(label: 'Vehicle', value: '2024 Toyota Camry SE'),
-            _InfoItem(label: 'Technician', value: 'Armand'),
-            _InfoItem(label: 'Store', value: 'Costa Oil Change - Chalmette'),
-            _InfoItem(label: 'Status', value: 'AI Review'),
-          ],
+  Widget observationCard(AiObservation observation) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      border: Border.all(color: Colors.grey.shade300),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          observation.title,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSummary() {
-    final flagged = observations.where((item) => item.requiresAction).length;
-    final resolved = observations
-        .where((item) => item.requiresAction && item.resolved)
-        .length;
-
-    return Card(
-      color: Colors.blue.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.auto_awesome, color: Colors.blue),
-                SizedBox(width: 10),
-                Text(
-                  'AI Summary (Mock)',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(width: 10),
-                Chip(label: Text('AI OBSERVED — NOT VERIFIED')),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'AI observations are advisory only. A technician must resolve all flagged items before the customer report can be generated.',
-            ),
-            const SizedBox(height: 12),
-            Text('Flagged items resolved: $resolved of $flagged'),
-          ],
+        Text('DEMO ADVISORY • ${observation.stage} • synthetic scenario'),
+        Text(observation.description),
+        const SizedBox(height: 8),
+        Text(
+          'Assessment: ${observation.status.label} | ${observation.resolved ? 'No unresolved required concern' : 'BLOCKING: issue not cleared'}',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: observation.resolved ? Colors.blue : Colors.red,
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildObservations() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'AI OBSERVATIONS',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+        Text(observation.nextAction),
+        if (observation.decidedAt != null)
+          Text(
+            'Reason: ${observation.decisionReason}\n${observation.decidedBy} • ${observation.decidedAt!.toIso8601String()}',
+          ),
+        if (observation.addressedAt != null)
+          Text(
+            'Simulated correction: ${observation.correctiveAction}\nSimulated recheck: ${observation.recheck}\nResult: ${observation.recheckPassed ? 'Successful — concern cleared' : 'Failed or incomplete — still blocking'}\n${observation.addressedBy} • ${observation.addressedAt!.toIso8601String()}',
+          ),
+        if (observation.requiresAction) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonal(
+                onPressed: () =>
+                    decide(observation, AiObservationStatus.confirmed),
+                child: const Text('CONFIRM CONCERN'),
               ),
+              OutlinedButton(
+                onPressed: () =>
+                    decide(observation, AiObservationStatus.dismissed),
+                child: const Text('DISMISS WITH REASON'),
+              ),
+              OutlinedButton(
+                onPressed: () =>
+                    decide(observation, AiObservationStatus.furtherInspection),
+                child: const Text('NEEDS FURTHER INSPECTION'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: observation.status == AiObservationStatus.confirmed
+                ? () => address(observation)
+                : null,
+            icon: const Icon(Icons.fact_check),
+            label: const Text('RECORD SIMULATED CORRECTION + RECHECK'),
+          ),
+          if (observation.status != AiObservationStatus.confirmed &&
+              !observation.resolved)
+            const Text(
+              'First select CONFIRM CONCERN and save your reason to enable correction and recheck.',
             ),
-            const SizedBox(height: 12),
-            ...observations.map((observation) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            observation.requiresAction
-                                ? Icons.warning_amber
-                                : Icons.info_outline,
-                            color: _statusColor(observation),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              observation.title,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Chip(
-                            label: Text(_statusText(observation)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(observation.description),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${observation.stage} • AI confidence: ${observation.confidencePercent}%',
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                      if (observation.requiresAction &&
-                          observation.status == AiObservationStatus.pending) ...[
-                        const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.tonalIcon(
-                              onPressed: () => resolve(
-                                observation,
-                                AiObservationStatus.confirmed,
-                              ),
-                              icon: const Icon(Icons.check_circle),
-                              label: const Text('CONFIRM'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => resolve(
-                                observation,
-                                AiObservationStatus.dismissed,
-                              ),
-                              icon: const Icon(Icons.block),
-                              label: const Text('DISMISS'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => resolve(
-                                observation,
-                                AiObservationStatus.furtherInspection,
-                              ),
-                              icon: const Icon(Icons.search),
-                              label: const Text('NEEDS FURTHER INSPECTION'),
-                            ),
-                          ],
+        ],
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: session,
+    builder: (context, _) {
+      final gatesReady =
+          session.demoReady &&
+          session.allChecksComplete &&
+          session.flagsResolved;
+      final blockers = <String>[
+        if (!session.active) 'This session is no longer active.',
+        if (!session.demoReady) 'Complete the demo customer, vehicle, placeholder-data and Square readiness checks in intake.',
+        if (!session.observationsLoaded) 'Load the demo AI observations.',
+        for (final step in session.requiredSteps.where((s) => !s.isComplete))
+          'Required inspection check incomplete or failed: ${step.label}. Return to Guided Inspection to finish it.',
+        for (final observation in session.observations.where(
+          (o) => !o.resolved,
+        ))
+          '${observation.title}: ${observation.status.label}. ${observation.nextAction}',
+      ];
+      final accepted = session.attempts.where(
+        (a) => a.status == CaptureStatus.accepted,
+      );
+      return Scaffold(
+        backgroundColor: const Color(0xfff5f7fa),
+        appBar: AppBar(
+          title: const Text(
+            'Project Verify — AI Review',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1000),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SessionBanner(session: session),
+                  card('INSPECTION SUMMARY', [
+                    Wrap(
+                      spacing: 30,
+                      runSpacing: 14,
+                      children: [
+                        Text(
+                          'Customer: ${session.customer?.displayName ?? 'Not selected'}\n${session.customer?.phone ?? ''}',
+                        ),
+                        Text(
+                          'Vehicle: ${session.vehicle?.displayName ?? 'Not selected'}\nSample VIN: ${session.vehicle?.vin ?? ''}',
+                        ),
+                        Text(
+                          'Technician: ${session.technician}\nStore: ${session.location}',
                         ),
                       ],
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMedia() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'INSPECTION MEDIA (MOCK)',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Under Vehicle',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: const [
-                _MediaTile(label: 'Drain Plug'),
-                _MediaTile(label: 'Oil Filter'),
-                _MediaTile(label: 'Axle Area'),
-                _MediaTile(label: 'Engine Underside'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Under Hood',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: const [
-                _MediaTile(label: 'Oil Level'),
-                _MediaTile(label: 'Touch Sequence'),
-                _MediaTile(label: 'Engine Bay'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNotes() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: const [
-            Text(
-              'NOTES & RECOMMENDATIONS',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 14),
-            TextField(
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: 'Internal Technician Note (optional)',
-                hintText:
-                    'Shop-only note. This will not appear on the customer report.',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 14),
-            TextField(
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: 'Customer-Visible Recommendation (optional)',
-                hintText:
-                    'Example: Tires need attention. This may appear on the customer report.',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildApproval() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'TECHNICIAN APPROVAL',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: reviewedAllMedia,
-              onChanged: (value) =>
-                  setState(() => reviewedAllMedia = value ?? false),
-              title: const Text('I reviewed the AI observations and inspection media.'),
-            ),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: actionedFlags,
-              onChanged: allRequiredObservationsResolved
-                  ? (value) => setState(() => actionedFlags = value ?? false)
-                  : null,
-              title: const Text('All flagged items have been addressed.'),
-              subtitle: !allRequiredObservationsResolved
-                  ? const Text('Resolve all required AI flags first.')
-                  : null,
-            ),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: infoAccurate,
-              onChanged: (value) =>
-                  setState(() => infoAccurate = value ?? false),
-              title: const Text('The verified information is accurate to the best of my knowledge.'),
-            ),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: approveForReport,
-              onChanged: (value) =>
-                  setState(() => approveForReport = value ?? false),
-              title: const Text('I approve this inspection for the customer report.'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNextButton() {
-    return SizedBox(
-      height: 62,
-      child: FilledButton.icon(
-        onPressed: approvalComplete
-            ? () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'SCR-003 complete. SCR-004 Customer Report will connect here.',
                     ),
+                  ]),
+                  const SizedBox(height: 16),
+                  card('AI Summary (Mock)', [
+                    const Text(
+                      'DEMO ADVISORY — NOT VERIFIED',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const Text(
+                      'Synthetic scenarios only; no actual image or video was analyzed. A confirmed concern remains blocking until corrective action and a successful recheck are documented.',
+                    ),
+                    Text(
+                      'Required concerns cleared: ${session.observations.where((o) => o.requiresAction && o.resolved).length} of ${session.observations.where((o) => o.requiresAction).length}',
+                    ),
+                  ], color: Colors.blue.shade50),
+                  const SizedBox(height: 16),
+                  card('AI OBSERVATIONS', [
+                    if (loading) const LinearProgressIndicator(),
+                    if (error != null) ...[
+                      Text(error!),
+                      TextButton(onPressed: load, child: const Text('RETRY')),
+                    ],
+                    ...session.observations.map(observationCard),
+                  ]),
+                  const SizedBox(height: 16),
+                  card('INSPECTION MEDIA (SIMULATED METADATA)', [
+                    const Text(
+                      'No actual media files or playback. Retakes are retained as internal-only metadata, not durable archives.',
+                    ),
+                    if (accepted.isEmpty)
+                      const Text('No accepted simulated captures.'),
+                    ...accepted.map(
+                      (a) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text(
+                          '${session.step(a.stepId).label} • simulated ${a.kind.name} • ${a.duration.inSeconds}s\n${a.technician} • ${a.createdAt.toIso8601String()}',
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'Internal attempt history: ${session.attempts.where((a) => a.internalOnly).length} attempts retained.',
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  card('NOTES & RECOMMENDATIONS', [
+                    TextField(
+                      key: const ValueKey('internal-note'),
+                      controller: internalController,
+                      maxLines: 3,
+                      onChanged: (text) =>
+                          session.setNote(text, customerVisible: false),
+                      decoration: const InputDecoration(
+                        labelText: 'Internal Technician Note (optional)',
+                        hintText:
+                            'Shop-only. Excluded from customer-facing data.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (session.internalNote != null)
+                      Text(
+                        'Updated by ${session.internalNote!.author} • ${session.internalNote!.updatedAt.toIso8601String()}',
+                      ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      key: const ValueKey('customer-recommendation'),
+                      controller: recommendationController,
+                      maxLines: 3,
+                      onChanged: (text) =>
+                          session.setNote(text, customerVisible: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Customer-Visible Recommendation (optional)',
+                        hintText: 'Technician recommendation; may appear in a future report.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (session.customerRecommendation != null)
+                      Text(
+                        'Updated by ${session.customerRecommendation!.author} • ${session.customerRecommendation!.updatedAt.toIso8601String()}',
+                      ),
+                  ]),
+                  const SizedBox(height: 16),
+                  card('TECHNICIAN APPROVAL — DEMO ONLY', [
+                    if (!gatesReady) ...[
+                      const Text(
+                        'What still prevents progression:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      ...blockers.map(
+                        (text) => Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text('• $text'),
+                        ),
+                      ),
+                    ] else
+                      Text(
+                        'All required concerns and inspection checks are cleared for this demo. Manually select the ${session.approvals.where((checked) => !checked).length} remaining acknowledgments below, then COMPLETE DEMO REVIEW.',
+                      ),
+                    for (var i = 0; i < 4; i++)
+                      CheckboxListTile(
+                        key: ValueKey('approval-$i'),
+                        contentPadding: EdgeInsets.zero,
+                        value: session.approvals[i],
+                        onChanged: gatesReady
+                            ? (value) => session.setApproval(i, value ?? false)
+                            : null,
+                        title: Text(
+                          const [
+                            'I reviewed the demo observations and simulated evidence metadata.',
+                            'All required concerns and failed checks have been addressed in this demo.',
+                            'I understand the sample information is unverified.',
+                            'I acknowledge demo completion only, not real inspection approval.',
+                          ][i],
+                        ),
+                      ),
+                    if (session.demoApproved)
+                      const Text(
+                        'DEMO REVIEW COMPLETE • No real approval or report authorization.',
+                      ),
+                  ]),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    key: const ValueKey('complete-demo'),
+                    onPressed: session.canCompleteDemo
+                        ? () {
+                            session.completeDemo();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Demo review complete. Customer report generation and delivery are not implemented.',
+                                ),
+                              ),
+                            );
+                          }
+                        : null,
+                    icon: const Icon(Icons.fact_check),
+                    label: const Text('COMPLETE DEMO REVIEW'),
                   ),
-                );
-              }
-            : null,
-        icon: const Icon(Icons.description),
-        label: const Text(
-          'GENERATE CUSTOMER REPORT',
-          style: TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoItem extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoItem({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 210,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.grey,
-              fontSize: 12,
+                  const SizedBox(height: 30),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MediaTile extends StatelessWidget {
-  final String label;
-
-  const _MediaTile({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 180,
-      height: 95,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.play_circle_outline, size: 34),
-          const SizedBox(height: 6),
-          Text(label),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    },
+  );
 }
