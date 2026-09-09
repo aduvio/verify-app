@@ -8,6 +8,27 @@ import 'vehicle.dart';
 import 'verification_item.dart';
 import 'inspection_step.dart';
 import 'provenance.dart';
+import '../services/mock_delivery_service.dart';
+
+enum DeliveryChannel { sms, email }
+
+class ReportSnapshot {
+  final String inspectionId;
+  final int revision;
+  final Map<String, Object?> data;
+  ReportSnapshot(this.inspectionId, this.revision, Map<String, Object?> data)
+    : data = _freeze(data) as Map<String, Object?>;
+}
+
+Object? _freeze(Object? value) {
+  if (value is Map<String, Object?>) {
+    return Map<String, Object?>.unmodifiable(
+      value.map((k, v) => MapEntry(k, _freeze(v))),
+    );
+  }
+  if (value is List) return List<Object?>.unmodifiable(value.map(_freeze));
+  return value;
+}
 
 typedef SessionClock = DateTime Function();
 
@@ -107,6 +128,151 @@ class InspectionSession extends ChangeNotifier {
   bool get realServiceReady =>
       false; // No live providers or evidence in this batch.
   bool get realApproved => false;
+
+  int _reportRevision = 0;
+  int get reportRevision => _reportRevision;
+  ReportSnapshot? _reportSnapshot;
+  ReportSnapshot? get reportSnapshot => _reportSnapshot;
+  DeliveryChannel _deliveryChannel = DeliveryChannel.sms;
+  DeliveryChannel get deliveryChannel => _deliveryChannel;
+  final List<bool> _deliveryConfirmations = [false, false];
+  List<bool> get deliveryConfirmations =>
+      List.unmodifiable(_deliveryConfirmations);
+  bool _sending = false;
+  bool get sending => _sending;
+  String? _deliveryMessage;
+  String? get deliveryMessage => _deliveryMessage;
+  String get recipient =>
+      (deliveryChannel == DeliveryChannel.sms
+              ? customer?.phone
+              : customer?.email)
+          ?.trim() ??
+      '';
+  String? get recipientProblem {
+    if (recipient.isEmpty) {
+      return 'No ${deliveryChannel.name.toUpperCase()} contact. Correct the session contact below.';
+    }
+    final valid = deliveryChannel == DeliveryChannel.sms
+        ? RegExp(r'^\+?[0-9 ()-]+$').hasMatch(recipient) &&
+              recipient.replaceAll(RegExp(r'\D'), '').length >= 10 &&
+              recipient.replaceAll(RegExp(r'\D'), '').length <= 15
+        : RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(recipient);
+    return valid
+        ? null
+        : 'Invalid ${deliveryChannel.name.toUpperCase()} contact. Correct the session contact below.';
+  }
+
+  List<String> get reportBlockers => [
+    if (!demoReady) 'Complete demo intake in SCR-001.',
+    for (final s in requiredSteps.where((s) => !s.isComplete))
+      'Required inspection check incomplete: ${s.label}.',
+    if (!observationsLoaded) 'Complete advisory review in SCR-003.',
+    for (final o in observations.where((o) => !o.resolved))
+      'Unresolved concern: ${o.title}. ${o.nextAction}',
+    if (!demoApproved) 'Return to SCR-003, review changes, manually acknowledge all four approvals and complete demo review.',
+  ];
+  bool get reportCurrent =>
+      demoApproved &&
+      _reportSnapshot?.inspectionId == id &&
+      _reportSnapshot?.revision == reportRevision;
+  bool get canSimulateSend =>
+      reportCurrent &&
+      recipientProblem == null &&
+      _deliveryConfirmations.every((v) => v) &&
+      !_sending;
+
+  void _resetDeliveryReview() {
+    _reportSnapshot = null;
+    _deliveryConfirmations.fillRange(0, 2, false);
+    _deliveryMessage = null;
+  }
+
+  bool prepareReport() {
+    if (!demoApproved) return false;
+    _reportSnapshot = ReportSnapshot(
+      id,
+      reportRevision,
+      projectCustomerReport(this),
+    );
+    _deliveryConfirmations.fillRange(0, 2, false);
+    _deliveryMessage = null;
+    _event('demo_report_prepared', {'revision': '$reportRevision'});
+    return true;
+  }
+
+  void selectDeliveryChannel(DeliveryChannel channel) {
+    if (!active || sending || channel == _deliveryChannel) return;
+    _deliveryChannel = channel;
+    _deliveryConfirmations.fillRange(0, 2, false);
+    _deliveryMessage = null;
+    _event('delivery_channel_changed', {'channel': channel.name});
+  }
+
+  void setDeliveryConfirmation(int index, bool value) {
+    if (!reportCurrent || sending || (value && recipientProblem != null)) {
+      return;
+    }
+    _deliveryConfirmations[index] = value;
+    _deliveryMessage = null;
+    _event('demo_delivery_review', {
+      'revision': '$reportRevision',
+      'index': '$index',
+      'checked': '$value',
+    });
+  }
+
+  Future<bool> simulateDelivery(DeliveryService service) async {
+    if (!canSimulateSend) return false;
+    final revision = reportRevision;
+    final snapshot = _reportSnapshot;
+    final contact = recipient;
+    final channel = deliveryChannel;
+    _sending = true;
+    _deliveryMessage = null;
+    _event('demo_delivery_started', {
+      'revision': '$revision',
+      'channel': channel.name,
+    });
+    bool current() =>
+        reportCurrent &&
+        identical(snapshot, _reportSnapshot) &&
+        revision == reportRevision &&
+        contact == recipient &&
+        channel == deliveryChannel &&
+        _deliveryConfirmations.every((v) => v);
+    try {
+      await service.simulate(
+        inspectionId: id,
+        revision: revision,
+        channel: channel.name,
+        recipient: contact,
+      );
+      if (!current()) {
+        _deliveryMessage = 'Session changed. Review the updated report and recipient again. Nothing was sent.';
+        _event('demo_delivery_stale', {'revision': '$revision'});
+        return false;
+      }
+      _deliveryMessage =
+          'Simulation complete. Nothing was sent to the customer.';
+      _event('demo_delivery_completed', {
+        'revision': '$revision',
+        'actualSend': 'false',
+      });
+      return true;
+    } catch (_) {
+      _deliveryMessage =
+          'Simulation failed. Nothing was sent. Review and try again.';
+      _event('demo_delivery_failed', {
+        'revision': '$revision',
+        'actualSend': 'false',
+      });
+      return false;
+    } finally {
+      _sending = false;
+      _deliveryConfirmations.fillRange(0, 2, false);
+      notifyListeners();
+    }
+  }
 
   final List<InspectionStep> _steps = [
     InspectionStep(
@@ -223,6 +389,8 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void _invalidate(String reason) {
+    _reportRevision++;
+    _resetDeliveryReview();
     _approvals.fillRange(0, _approvals.length, false);
     _demoApproved = false;
     _event('approval_invalidated', {'reason': reason});
@@ -581,6 +749,8 @@ class InspectionSession extends ChangeNotifier {
     }
     _approvals[index] = value;
     _demoApproved = false;
+    _reportRevision++;
+    _resetDeliveryReview();
     _event('demo_acknowledgment', {'index': '$index', 'checked': '$value'});
   }
 
@@ -604,6 +774,25 @@ class InspectionSession extends ChangeNotifier {
 /// Explicit allow-list: no audit, internal notes, raw AI, or synthetic facts.
 Map<String, Object?> projectCustomerReport(InspectionSession session) => {
   'inspectionId': session.id,
+  'revision': session.reportRevision,
+  'product': 'Project Verify',
+  'location': session.location,
+  'technician': session.technician,
+  'createdAt': session.createdAt.toIso8601String(),
+  'reportStatus': 'DEMO — NOT A LIVE SERVICE REPORT',
+  'playbackAvailable': false,
+  'documentedChecks': session.requiredSteps
+      .where((s) => s.isComplete)
+      .map(
+        (s) => {
+          'label': s.label,
+          'result': session.usesVideo(s.id) || s.id == 'dipstick'
+              ? 'Simulated evidence metadata only — no media captured'
+              : 'Demo technician statement — not independently verified',
+          'provenance': DataProvenance.sample.name,
+        },
+      )
+      .toList(),
   'isDemo': session.isDemo,
   'realApproved': session.realApproved,
   'customer': {

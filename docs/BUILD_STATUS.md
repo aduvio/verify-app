@@ -1,6 +1,10 @@
 # Project Verify — foundation repairs
 
-Scope: SCR-001 intake, SCR-002 guided inspection, SCR-003 advisory review.
+Current status is summarized in the SCR-004 section at the end. Earlier dated
+sections record the foundation checkpoint's behavior and validation history.
+
+Scope: SCR-001 intake, SCR-002 guided inspection, SCR-003 advisory review,
+SCR-004 demo customer preview and simulated delivery.
 The app is a demo prototype, not a completed service-verification product.
 
 ## Approved product direction
@@ -52,11 +56,12 @@ or durable storage is connected. Unsupported intake actions explain this.
 
 Everything is held in process memory. Closing/reloading can lose sessions;
 retake metadata is not durable archiving. Technician identity is a demo identity,
-not authenticated. SCR-004/report generation and delivery do not exist. Approval
+not authenticated. SCR-004 now generates an in-memory demo preview; live delivery
+and secure hosting do not exist. Approval
 here is a demo acknowledgment and cannot authorize a real report. There is no
 manager override. Existing platform scaffolds still need device validation.
 
-## Validation — September 7, 2026
+## Historical foundation validation — September 7, 2026
 
 - Changed Dart files formatted with the installed SDK formatter.
 - `flutter analyze --no-pub`: passed, no issues (8.9 seconds).
@@ -194,3 +199,94 @@ no real evidence, durable storage, customer report, or delivery was added.
 
 Continued on `codex/demo-foundation-repairs`, preserving earlier uncommitted work.
 No dependency additions, commits, pushes, deployments, overrides, or SCR-004 work.
+
+## SCR-004 customer preview and simulated delivery — September 9, 2026
+
+### Foundation checkpoint
+
+Before SCR-004 edits, `flutter analyze --no-pub` passed with no issues (7.6s)
+and `flutter test --no-pub` passed all 48 existing tests (6s).
+Foundation commit: `52be816aeb4fab02e0700d53f1237d780ba21e98`
+(`Repair demo inspection foundation and concern resolution`). Push succeeded
+to the existing `https://github.com/aduvio/verify-app.git` remote on
+`codex/demo-foundation-repairs`. No merge, force push or remote change.
+Only foundation source, tests and supporting instructions/docs were committed;
+no generated build output or runtime session data was included.
+
+### Implemented locally
+
+- After the four manual SCR-003 acknowledgments and COMPLETE DEMO REVIEW,
+  VIEW DEMO CUSTOMER REPORT opens SCR-004 using the same session.
+- An immutable customer projection snapshot carries inspection ID and report
+  revision, store, technician, creation time, sample customer/vehicle identity,
+  documented demo checks and an intentionally customer-visible recommendation.
+- The allow-list excludes internal notes, raw AI observations/confidence,
+  capture attempts (including rejected/superseded), and audit details. No demo
+  values enter verifiedFacts. Recommendations are separate from service facts.
+- One prominent Watch My Inspection area clearly states playback is unavailable.
+  It has no pretend play action. Specifications, quantity and filter number
+  remain unavailable. Preview says DEMO — NOT A LIVE SERVICE REPORT.
+- Separate technician controls select SMS/email using current session contacts,
+  explain missing/invalid contacts, and allow explicit correction. Contact changes
+  require renewed SCR-003 approval. No contact is invented by SCR-004.
+- Two manual preview/recipient/privacy confirmations gate SIMULATE SEND — DEMO.
+  Success explicitly says nothing was sent. A demo failure switch exercises
+  failure handling. Pending operations lock conflicting controls and serialize
+  at the session boundary, including across screen navigation.
+- Evidence, decisions, customer recommendations, contacts and approval changes
+  invalidate the snapshot and delivery review. Channel changes reset recipient
+  review. Internal notes remain private without invalidating the customer report.
+  Readiness is checked before preparing/sending and again after asynchronous
+  completion. Stale results cannot claim successful simulation.
+- Snapshot, confirmations, outcomes and attributed audit events remain in the
+  existing in-memory session; returning between screens preserves that session.
+
+### Simulated and incomplete
+
+Delivery is a mock service interface only. There is no SMS/email transport,
+upload, secure hosted link, Square call, actual media playback, or live approval.
+The link is an inactive labeled placeholder, with the future no-account policy
+explained. Refresh/close can lose all state. Technician identity remains a demo
+identity. SCR-005 is not built. Real evidence, providers, secure hosting/delivery,
+authentication and durable storage remain future work.
+
+### Validation
+
+- Changed Dart files formatted with installed SDK; no dependencies added.
+- `flutter analyze --no-pub`: passed, no issues (6.1s).
+- `flutter test --no-pub`: **58 passed** (7s), retaining all 48 foundation tests
+  and adding ten SCR-004 unit/widget tests. Covers projection privacy and immutable
+  identity/revision, contacts, confirmations, blockers, invalidation, overlapping
+  sends, stale completion, mock failure, disposal/navigation and responsive flow.
+- `flutter build web --no-pub`: passed (36.0s). Wasm dry run succeeded; this does
+  not claim a Wasm runtime test. The earlier optional Chrome test-runner stall
+  remains historical/unperformed; no stalled check is counted as passing.
+- Browser: completed intake, required guided checks, reasoned concern dismissal,
+  manual SCR-003 approval -> SCR-004. Confirmed session data and recommendation,
+  unavailable playback, excluded internal/AI data, manual send gating, pending
+  lock, honest success and injected failure. Selected existing session email;
+  entered invalid test contact to verify explicit blocking, restored the original
+  sample email, then completed renewed manual approval and fresh preview.
+- Browser layouts checked at 360×800 and 1440×1000, including phone delivery
+  controls; no visible overflow and no logged runtime errors. Widget flow tests
+  also cover 360px and 1440px. Browser viewport override reset after checking.
+- `git diff --check`: passed. SCR-004 changes remain **uncommitted** for review.
+  No live services, customer sends, deployment, or SCR-005 work.
+
+Files created: `lib/screens/customer_report_screen.dart`,
+`lib/services/mock_delivery_service.dart`, `test/customer_report_test.dart`.
+Files modified: `lib/models/inspection_session.dart`,
+`lib/screens/ai_review_screen.dart`, `AGENTS.md`, `docs/BUILD_STATUS.md`.
+
+Updated loopback preview: `http://127.0.0.1:8765/?report-preview=20260909-built`.
+The prepared browser tab is at SCR-004; opening the URL in a new tab starts a new
+in-memory demo. Earlier browser tabs were preserved and still run their old code.
+To start independently: `flutter run -d chrome --no-pub` from the project folder.
+
+Manual checks:
+1. Verify the sample identity/recommendation and unavailable video area; confirm
+   internal notes and raw AI observations are absent from the customer preview.
+2. Check both delivery confirmations, then SIMULATE SEND — DEMO; verify nothing
+   was sent. Enable the failure switch, review again and verify honest failure.
+3. Change a contact or return to SCR-003 and change the recommendation; confirm
+   renewed manual approval and preview/recipient review are required.

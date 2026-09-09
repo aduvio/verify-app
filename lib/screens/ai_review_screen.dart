@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'customer_report_screen.dart';
+
 import '../models/ai_observation.dart';
 import '../models/inspection_session.dart';
 import '../services/mock_ai_review_service.dart';
@@ -369,7 +371,7 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'Demo review complete. Customer report generation and delivery are not implemented.',
+                                  'Demo review complete. You can now preview the demo customer report.',
                                 ),
                               ),
                             );
@@ -378,6 +380,17 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                     icon: const Icon(Icons.fact_check),
                     label: const Text('COMPLETE DEMO REVIEW'),
                   ),
+                  if (session.demoApproved)
+                    OutlinedButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              CustomerReportScreen(session: session),
+                        ),
+                      ),
+                      child: const Text('VIEW DEMO CUSTOMER REPORT'),
+                    ),
                   const SizedBox(height: 30),
                 ],
               ),
