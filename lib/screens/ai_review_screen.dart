@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/session_save_boundary.dart';
+
 import 'customer_report_screen.dart';
 
 import '../models/ai_observation.dart';
@@ -192,7 +194,13 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) => SessionSaveBoundary(
+    session: session,
+    repository: widget.repository,
+    child: buildScreen(context),
+  );
+
+  Widget buildScreen(BuildContext context) => AnimatedBuilder(
     animation: session,
     builder: (context, _) {
       final gatesReady =
@@ -348,7 +356,11 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                         contentPadding: EdgeInsets.zero,
                         value: session.approvals[i],
                         onChanged: gatesReady
-                            ? (value) => session.setApproval(i, value ?? false)
+                            ? (value) => saveAndProceed(
+                                context,
+                                session,
+                                () => session.setApproval(i, value ?? false),
+                              )
                             : null,
                         title: Text(
                           const [
@@ -368,8 +380,14 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                   FilledButton.icon(
                     key: const ValueKey('complete-demo'),
                     onPressed: session.canCompleteDemo
-                        ? () {
+                        ? () async {
+                            if (!await session.flush() || !context.mounted) {
+                              return;
+                            }
                             session.completeDemo();
+                            if (!await session.flush() || !context.mounted) {
+                              return;
+                            }
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -384,12 +402,16 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                   ),
                   if (session.demoApproved)
                     OutlinedButton(
-                      onPressed: () => Navigator.push(
+                      onPressed: () => saveAndProceed(
                         context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => CustomerReportScreen(
-                            session: session,
-                            repository: widget.repository,
+                        session,
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => CustomerReportScreen(
+                              session: session,
+                              repository: widget.repository,
+                            ),
                           ),
                         ),
                       ),

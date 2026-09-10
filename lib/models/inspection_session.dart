@@ -9,6 +9,9 @@ import 'verification_item.dart';
 import 'inspection_step.dart';
 import 'provenance.dart';
 import '../services/mock_delivery_service.dart';
+part 'inspection_session_codec.dart';
+
+enum SavePhase { memory, saving, saved, failed, conflict }
 
 enum DeliveryChannel { sms, email }
 
@@ -125,6 +128,13 @@ class AuditEvent {
 /// Active demo state only. Mutations go through this boundary so audit and
 /// approval invalidation stay together. No real-service approval is issued.
 class InspectionSession extends ChangeNotifier {
+  final ValueNotifier<SavePhase> savePhase = ValueNotifier(SavePhase.memory);
+  Future<bool> Function()? persist;
+  bool get persistenceEnabled => persist != null;
+  Future<bool> flush() async => await persist?.call() ?? true;
+  bool get saved => !persistenceEnabled || savePhase.value == SavePhase.saved;
+  int? _approvedRevision;
+  int? _acknowledgmentRevision;
   final String id;
   final String technician;
   final String location;
@@ -135,7 +145,8 @@ class InspectionSession extends ChangeNotifier {
   final DataProvenance intakeProvenance = DataProvenance.sample;
   bool _active = true;
   bool get active => _active;
-  bool get editable => active && _completion == null;
+  bool get editable =>
+      active && _completion == null && savePhase.value != SavePhase.conflict;
   InspectionCompletion? _completion;
   InspectionCompletion? get completion => _completion;
   final List<InspectionCompletion> _completedRevisions = [];
@@ -195,7 +206,8 @@ class InspectionSession extends ChangeNotifier {
   final List<bool> _approvals = List.filled(4, false);
   List<bool> get approvals => List.unmodifiable(_approvals);
   bool _demoApproved = false;
-  bool get demoApproved => _demoApproved && canCompleteDemo;
+  bool get demoApproved =>
+      _demoApproved && _approvedRevision == reportRevision && canCompleteDemo;
   bool get realServiceReady =>
       false; // No live providers or evidence in this batch.
   bool get realApproved => false;
@@ -333,6 +345,17 @@ class InspectionSession extends ChangeNotifier {
         channel == deliveryChannel &&
         _deliveryConfirmations.every((v) => v);
     try {
+      if (persistenceEnabled && !await flush()) {
+        finish(DeliveryAttemptStatus.failed, clock());
+        _deliveryMessage = 'Save failed — retry required. Simulation was not started. Nothing was sent.';
+        _event('demo_delivery_not_started_save_failed');
+        return false;
+      }
+      if (!current()) {
+        finish(DeliveryAttemptStatus.stale, clock());
+        _event('demo_delivery_stale', {'revision': '$revision'});
+        return false;
+      }
       await service.simulate(
         inspectionId: id,
         revision: revision,
@@ -367,6 +390,10 @@ class InspectionSession extends ChangeNotifier {
         null,
         at,
       );
+      if (persistenceEnabled && !await flush()) {
+        _deliveryMessage = 'Simulation finished, but saving failed. Retry saving before continuing. Nothing was sent.';
+        return false;
+      }
       return true;
     } catch (_) {
       finish(DeliveryAttemptStatus.failed, clock());
@@ -451,10 +478,11 @@ class InspectionSession extends ChangeNotifier {
     required this.technician,
     this.location = 'Costa Oil Change - Chalmette',
     SessionClock? clock,
+    DateTime? restoredCreatedAt,
   }) : clock = clock ?? DateTime.now,
-       createdAt = (clock ?? DateTime.now)() {
+       createdAt = restoredCreatedAt ?? (clock ?? DateTime.now)() {
     updatedAt = createdAt;
-    _event('session_created', {'mode': 'demo; memory only'});
+    _event('session_created', {'mode': 'demo'});
   }
 
   InspectionStep step(String id) => _steps.singleWhere((s) => s.id == id);
@@ -486,6 +514,7 @@ class InspectionSession extends ChangeNotifier {
       demoReady &&
       allChecksComplete &&
       flagsResolved &&
+      _acknowledgmentRevision == reportRevision &&
       _approvals.every((value) => value);
 
   void _event(
@@ -500,6 +529,8 @@ class InspectionSession extends ChangeNotifier {
   }
 
   void _invalidate(String reason) {
+    _approvedRevision = null;
+    _acknowledgmentRevision = null;
     _reportRevision++;
     _resetDeliveryReview();
     _approvals.fillRange(0, _approvals.length, false);
@@ -865,6 +896,7 @@ class InspectionSession extends ChangeNotifier {
     _approvals[index] = value;
     _demoApproved = false;
     _reportRevision++;
+    _acknowledgmentRevision = _reportRevision;
     _resetDeliveryReview();
     _event('demo_acknowledgment', {'index': '$index', 'checked': '$value'});
   }
@@ -872,7 +904,11 @@ class InspectionSession extends ChangeNotifier {
   bool completeDemo() {
     if (!editable || !canCompleteDemo) return false;
     _demoApproved = true;
-    _event('demo_review_completed', {'realApproval': 'false'});
+    _approvedRevision = reportRevision;
+    _event('demo_review_completed', {
+      'realApproval': 'false',
+      'revision': '$reportRevision',
+    });
     return true;
   }
 

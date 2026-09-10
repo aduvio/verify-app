@@ -1,7 +1,7 @@
 # Project Verify — foundation repairs
 
-Current status is summarized in the SCR-005 section at the end. Earlier dated
-sections record the foundation checkpoint's behavior and validation history.
+Current status is summarized in the local persistence section at the end. Earlier
+sections are historical checkpoints, including their former memory-only limits.
 
 Scope: SCR-001 intake, SCR-002 guided inspection, SCR-003 advisory review,
 SCR-004 demo customer preview and simulated delivery, SCR-005 demo completion.
@@ -386,3 +386,163 @@ Manual checks:
    send again; inspect staff attempt history for both revisions.
 3. START NEW INSPECTION should show a new ID with blank customer/vehicle and
    no old notes or approval state. Back must not expose the previous completion.
+
+## Local inspection persistence — September 9, 2026 (current)
+
+User acceptance on September 10: refresh/reopen retention, completed-inspection
+reopening safeguards, and concurrent-edit conflicts all passed manual checks.
+Storage behavior is approved. Checkpoint validation repeated September 10:
+analyzer clean (6.4s), all 81 tests passed (10s), web build passed (37.7s).
+
+### Approved SCR-005 checkpoint
+
+Committed as `4b30b41` (`Add approved demo completion and explicit inspection
+reopening`) and successfully pushed to the existing origin on
+`codex/demo-foundation-repairs`. Before the checkpoint, analyzer passed with no
+issues (6.8s), all 68 tests passed (8s), and web build passed (35.6s). No merge,
+force push, remote change, generated output or runtime records were included.
+The new persistence work described below remains uncommitted for user review.
+
+### What is implemented
+
+- Real browser-local IndexedDB, accessed through an isolated `InspectionStore`
+  adapter and the existing shared-session repository boundary. Database
+  `project_verify_local_v1`, object store `inspections`, database/schema version 1.
+  Each inspection is one structured aggregate keyed by its unique ID, with an
+  independent storage version. History is not a single preference value.
+- Full session serialization: identity/revision/timestamps, technician/location,
+  intake and demo provenance, workflow/checks, all simulated capture metadata,
+  AI observations, decisions/reasons/corrections/rechecks, authored internal and
+  customer notes, revision-bound approvals, immutable snapshots, delivery attempts
+  with their actual selected recipients, completion history and audit events.
+- Autosave with a 300ms debounce and serialized writes. Navigation, manual approval,
+  simulated delivery/completion, reopening and starting another session flush
+  required edits before proceeding. A complete aggregate is committed in one
+  transaction. Saving/Saved/Failed status reflects actual datastore confirmation;
+  failure retains the last committed record and current unsaved edits. Retry
+  controls do not pretend a failed completion save succeeded.
+- Atomic compare-and-write rejects a stale storage version. A conflicting tab
+  becomes read-only and explains that its unsaved edits remain only in that tab.
+  Keep it open and open the same address in another tab to review the latest saved
+  record. No automatic merge, overwrite or blanket override is provided.
+- Startup loads before creating anything. The minimal Saved Inspections chooser
+  supports RESUME, VIEW completed records, and START NEW INSPECTION. Completed
+  records retain the existing read-only/reason-required reopening behavior.
+- Restoration validates structure, ownership, demo provenance, snapshot privacy,
+  revision/audit-bound approvals, minimum clip duration and dipstick order.
+  Interrupted or unaccepted captures require retry; interrupted delivery becomes
+  stale and cannot resend itself. Recipient/preview confirmations require fresh
+  review after reload. Inconsistent completed records are not shown as completed.
+- Unavailable storage shows a retry explanation, without a web memory fallback.
+  Failed writes show retry required. Malformed/unknown-schema records are retained
+  untouched with recovery messages; valid records can still be opened. Version 1
+  initializes only missing stores; no destructive migrations/reset exist. Future
+  schema migrations must be explicit and preserve the source data.
+- Internal notes, audit history and raw AI observations stay outside the
+  allow-listed customer projection after restoration. Sample facts remain sample;
+  `verifiedFacts` stays empty. No runtime records or databases are written to Git.
+
+### Dependency and compatibility
+
+Added the specifically authorized persistence dependency
+[`idb_shim` 2.9.8](https://pub.dev/packages/idb_shim), pinned, BSD 2-Clause.
+Its IndexedDB API supplies the browser adapter and a memory implementation used
+only by deterministic adapter tests. Its Dart requirement (3.12+) is compatible
+with the installed Dart 3.13.2 / Flutter 3.47.2 SDK. The lockfile adds its required
+transitives `sembast` 3.8.9+1, `synchronized` 3.4.1+2 and `web` 1.1.1; unrelated
+locked versions and global software were not upgraded. Browser-specific imports
+are conditionally isolated, so a native adapter can be added later. Non-web demo
+execution still uses memory; native persistence is not implemented.
+
+### Validation and browser evidence
+
+- Changed Dart files formatted with the installed SDK.
+- `flutter analyze --no-pub`: passed, no issues (4.9s).
+- `flutter test --no-pub`: **81 tests passed** (11s).
+- `flutter build web --no-pub`: passed (42.3s), output `build/web`. Wasm dry
+  run succeeded; no Wasm runtime test is claimed.
+- `node --check tools/serve-local.cjs` and `git diff --check`: passed.
+
+The existing 68 tests are retained unchanged. `test/local_storage_test.dart` adds
+13 unit/widget tests covering complete round trips and reopened snapshots,
+privacy/provenance, missing/short/wrong-order evidence, unresolved/stale approval,
+top filters and superseded attempts, interrupted capture/review/delivery,
+separate records, atomic version conflicts, write failure/retry/latest-edit
+serialization, corruption retention, failed prerequisite/completion saves, honest
+save status, chooser layouts and read-only conflict feedback at 360×800 and
+1440×1000. The adapter's memory-backed test is not counted as browser persistence.
+
+Real IndexedDB was exercised through the compiled app in the embedded browser
+at exactly `http://127.0.0.1:8765/`: created a fictional inspection, waited for
+Saved, reloaded during a simulated recording, resumed the same ID/intake with the
+interrupted attempt requiring retry and no running timer. Continued all required
+checks, added distinct internal/customer notes and a further-inspection reason,
+waited for Saved and reloaded again. The same customer, vehicle, capture metadata,
+authored notes, timestamp and blocking decision were restored on SCR-003; approval
+remained unchecked/blocked. Restored note contents were checked visually.
+
+**Unperformed browser checks:** tab close/reopen, normal-browser restart,
+browser two-tab conflict interaction, and final browser completion-restoration
+and phone-layout checks. The embedded browser was initially usable, but after
+reconnecting its tool failed repeatedly with `failed to write kernel assets:
+The system cannot find the path specified. (os error 3)`. Native browser automation
+also failed with that runtime error; Chrome was not connected (`Browser is not
+available: chrome`). Therefore no normal-profile retention or browser-restart
+pass is claimed. The embedded profile may differ from a normal retained profile.
+Automated completion/conflict/phone-layout coverage is separate from these missing
+browser checks. A normal-profile manual acceptance pass is still required.
+
+### Stable local launch and retention checks
+
+Use PowerShell in `C:\Users\Armand\verify-app`:
+
+```powershell
+& 'C:\src\flutter_windows_3.47.2-stable\flutter\bin\flutter.bat' build web --no-pub
+node tools/serve-local.cjs
+```
+
+Open **http://127.0.0.1:8765/** in a normal, non-private Chrome or Edge profile.
+The currently running loopback helper already serves that address and updated
+`build/web` files. Reuse it if present; the checked-in launcher reports an occupied
+port instead of switching ports. To relaunch, stop your existing helper first.
+This is a local preview, not a deployment. `localhost`, another port, another
+browser/profile and embedded previews each have separate storage. A changing
+`flutter run` development port is unsuitable for this retention test.
+
+1. Create a fictional demo, enter both note types and a further-inspection reason.
+   Wait for Saved, reload, then close/reopen the tab and normal browser at the exact
+   address/profile. RESUME must retain data and keep the concern blocking.
+2. Complete the simulated workflow, wait for Saved, reload and VIEW its read-only
+   completion. Reopen with a reason: old snapshots/attempts/notes should remain,
+   with fresh approvals required. Start a new inspection; both IDs must remain.
+3. Open the same saved inspection in two tabs before editing. Save a note in one,
+   then edit the other. The second must show a conflict, preserve its unsaved text
+   in that tab and never overwrite the first tab's saved record.
+
+### Limits and future work
+
+Files added: `lib/models/inspection_session_codec.dart`,
+`lib/services/inspection_store.dart`, `indexed_db_inspection_store.dart`,
+`local_inspection_repository.dart`, `browser_store.dart`, `browser_store_web.dart`,
+`browser_store_stub.dart` (all under `lib/services`),
+`lib/screens/saved_inspections_screen.dart`,
+`lib/widgets/session_save_boundary.dart`, `test/local_storage_test.dart`,
+and `tools/serve-local.cjs`. Modified: app startup, shared session, the five
+existing screens, session banner, dependency manifest/lockfile, AGENTS and this
+status document. Existing tests were not deleted or modified.
+
+Local storage is not cloud backup or cross-device sync. Clearing site/browser
+data, browser eviction or losing a profile can remove records. Private/temporary
+profiles are unsuitable for retention tests. Wait for Saved before closing;
+unsaved/conflicting edits exist only in the open tab. Recovery currently preserves
+damaged data and reports the problem; no repair/export/merge utility is built.
+
+Only fictional demo data is appropriate. Staff authentication, production
+encryption and key management, access controls and cloud backups remain required
+before real customer use. The demo technician name is not an authenticated user.
+Saving locally while offline is not a fully offline-installable application.
+
+Camera/glasses, actual media files or durable video archiving, AI, specifications,
+provider lookups, Square, SMS/email, secure report links and cloud hosting remain
+mocked or unavailable. Completion is simulated, never real service approval.
+No SCR-006, production services, live sends, deployment or persistence commit.

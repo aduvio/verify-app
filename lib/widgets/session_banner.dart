@@ -21,7 +21,7 @@ class SessionBanner extends StatelessWidget {
           Text('${session.location} | Tech: ${session.technician}'),
           Text('Inspection: ${session.id}'),
           const Text(
-            'Simulated data and evidence. Screen controls are the glasses-first prototype/fallback. Memory only: closing or refreshing can lose this session.',
+            'Simulated data and evidence. Screen controls are the glasses-first prototype/fallback. Check local save status before leaving. No cloud backup or cross-device sync.',
           ),
         ],
       ),

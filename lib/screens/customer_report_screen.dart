@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/session_save_boundary.dart';
+
 import '../models/customer.dart';
 import '../models/inspection_session.dart';
 import '../services/mock_delivery_service.dart';
@@ -28,7 +30,12 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
   late final repository = widget.repository ?? InMemoryInspectionRepository();
 
   void openCompletion() {
-    if (!mounted || navigating || !session.completionCurrent) return;
+    if (!mounted ||
+        navigating ||
+        !session.completionCurrent ||
+        !session.saved) {
+      return;
+    }
     navigating = true;
     repository.retain(session);
     Navigator.of(context).pushAndRemoveUntil(
@@ -45,7 +52,7 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
     final success = await session.simulateDelivery(
       simulateFailure ? const MockDeliveryService(fail: true) : widget.service,
     );
-    if (success) openCompletion();
+    if (success && await session.flush()) openCompletion();
   }
 
   @override
@@ -94,7 +101,13 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) => SessionSaveBoundary(
+    session: session,
+    repository: widget.repository,
+    child: buildScreen(context),
+  );
+
+  Widget buildScreen(BuildContext context) => AnimatedBuilder(
     animation: session,
     builder: (context, _) {
       final data = session.reportCurrent ? session.reportSnapshot!.data : null;
@@ -123,7 +136,11 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                               child: const Text('PREPARE UPDATED DEMO PREVIEW'),
                             ),
                           TextButton(
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: () => saveAndProceed(
+                              context,
+                              session,
+                              () => Navigator.pop(context),
+                            ),
                             child: const Text('RETURN TO SCR-003 REVIEW'),
                           ),
                         ])
@@ -224,7 +241,7 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                           'Customers will not need an account when secure delivery is connected.',
                         ),
                         const Text(
-                          'Session and delivery history are in memory and can be lost on refresh or close.',
+                          'Local storage is device/browser-specific, not cloud backup. Clearing site data can remove records.',
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<DeliveryChannel>(
@@ -299,6 +316,15 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                                 : 'SIMULATE SEND — DEMO',
                           ),
                         ),
+                        if (session.completionCurrent)
+                          TextButton(
+                            onPressed: () async {
+                              if (await session.flush()) openCompletion();
+                            },
+                            child: const Text(
+                              'SAVE AND CONTINUE TO COMPLETION',
+                            ),
+                          ),
                         if (session.deliveryMessage != null)
                           Text(
                             session.deliveryMessage!,

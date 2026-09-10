@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/session_save_boundary.dart';
+
 import '../models/inspection_session.dart';
 import '../models/ai_observation.dart';
 import '../services/inspection_repository.dart';
@@ -22,12 +24,26 @@ class InspectionCompleteScreen extends StatefulWidget {
 
 class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
   bool busy = false;
+  String? storageError;
   InspectionSession get session => widget.session;
 
-  void startNew() {
+  Future<void> startNew() async {
     if (busy || !session.completionCurrent) return;
     setState(() => busy = true);
+    if (!await session.flush() || !mounted) {
+      if (mounted) setState(() => busy = false);
+      return;
+    }
     final next = widget.repository.startNext(session);
+    if (!await next.flush() || !mounted) {
+      if (mounted) {
+        setState(() {
+          busy = false;
+          storageError = 'New inspection could not be saved. The completed record is retained. Retry START NEW INSPECTION.';
+        });
+      }
+      return;
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute<void>(
         builder: (_) =>
@@ -52,7 +68,15 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
       setState(() => busy = false);
       return;
     }
+    if (!await session.flush() || !mounted) {
+      if (mounted) setState(() => busy = false);
+      return;
+    }
     if (session.reopen(result.first, completedRevision: revision)) {
+      if (!await session.flush() || !mounted) {
+        if (mounted) setState(() => busy = false);
+        return;
+      }
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
           builder: (_) => GuidedInspectionScreen(
@@ -82,17 +106,44 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) => SessionSaveBoundary(
+    session: session,
+    repository: widget.repository,
+    child: buildScreen(context),
+  );
+
+  Widget buildScreen(BuildContext context) => PopScope(
     canPop: false,
     child: AnimatedBuilder(
       animation: session,
       builder: (context, _) {
         final completed = session.completion;
         if (!session.completionCurrent || completed == null) {
-          return const Scaffold(
+          return Scaffold(
             body: Center(
-              child: Text(
-                'Completion unavailable. This session needs fresh review.',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'This reopened inspection needs saving and fresh review.',
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      if (await session.flush() && context.mounted) {
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute<void>(
+                            builder: (_) => GuidedInspectionScreen(
+                              session: session,
+                              repository: widget.repository,
+                            ),
+                          ),
+                          (_) => false,
+                        );
+                      }
+                    },
+                    child: const Text('SAVE AND CONTINUE REOPENED INSPECTION'),
+                  ),
+                ],
               ),
             ),
           );
@@ -222,7 +273,7 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
                                 ),
                                 const SizedBox(height: 12),
                                 const Text(
-                                  'Actual in-memory event timeline — demo session actions, no live service',
+                                  'Actual session event timeline — demo session actions, no live service',
                                 ),
                                 ...session.audit.map(
                                   (e) => Padding(
@@ -241,6 +292,7 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      if (storageError != null) Text(storageError!),
                       FilledButton(
                         key: const ValueKey('start-new-inspection'),
                         onPressed: busy ? null : startNew,
@@ -261,7 +313,7 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
                                     'VIEW HISTORY — PLACEHOLDER',
                                   ),
                                   content: const Text(
-                                    'The history screen is not implemented. Completed inspections are retained only in the current in-memory repository.',
+                                    'The history dashboard is not implemented. Use SAVED INSPECTIONS to open local records.',
                                   ),
                                   actions: [
                                     TextButton(
@@ -274,7 +326,7 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
                         child: const Text('VIEW HISTORY — PLACEHOLDER'),
                       ),
                       const Text(
-                        'Memory only: refreshing or closing the app can lose inspection records. Reopen explicitly to edit this inspection.',
+                        'Saved records belong to this browser profile and address. Clearing site data can remove them. Reopen explicitly to edit this inspection.',
                       ),
                     ],
                   ),

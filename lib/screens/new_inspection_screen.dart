@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/session_save_boundary.dart';
+
 import '../models/inspection_session.dart';
 import '../services/inspection_repository.dart';
 import '../services/mock_customer_service.dart';
@@ -88,7 +90,13 @@ class _NewInspectionScreenState extends State<NewInspectionScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) => SessionSaveBoundary(
+    session: session,
+    repository: repository,
+    child: buildScreen(context),
+  );
+
+  Widget buildScreen(BuildContext context) => AnimatedBuilder(
     animation: session,
     builder: (context, _) => Scaffold(
       backgroundColor: const Color(0xfff5f7fa),
@@ -271,11 +279,15 @@ class _NewInspectionScreenState extends State<NewInspectionScreen> {
                 const SizedBox(height: 18),
                 FilledButton.icon(
                   onPressed: !busy && session.demoReady
-                      ? () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => GuidedInspectionScreen(
-                              session: session,
-                              repository: repository,
+                      ? () => saveAndProceed(
+                          context,
+                          session,
+                          () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => GuidedInspectionScreen(
+                                session: session,
+                                repository: repository,
+                              ),
                             ),
                           ),
                         )

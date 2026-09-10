@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/session_save_boundary.dart';
+
 import '../models/inspection_session.dart';
 import '../models/inspection_step.dart';
 import '../services/capture_controller.dart';
@@ -148,7 +150,13 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) => SessionSaveBoundary(
+    session: session,
+    repository: widget.repository,
+    child: buildScreen(context),
+  );
+
+  Widget buildScreen(BuildContext context) => AnimatedBuilder(
     animation: changes,
     builder: (context, _) {
       final stage = session.underHoodStage ? 'Under Hood' : 'Under Vehicle';
@@ -318,7 +326,11 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                     FilledButton.icon(
                       key: const ValueKey('next-stage'),
                       onPressed: session.stageComplete && free
-                          ? () => session.setStage(true)
+                          ? () => saveAndProceed(
+                              context,
+                              session,
+                              () => session.setStage(true),
+                            )
                           : null,
                       icon: const Icon(Icons.arrow_forward),
                       label: const Text('CONTINUE TO UNDER HOOD'),
@@ -331,11 +343,15 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                     FilledButton.icon(
                       key: const ValueKey('finish-guided'),
                       onPressed: session.allChecksComplete && free
-                          ? () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => AiReviewScreen(
-                                  session: session,
-                                  repository: widget.repository,
+                          ? () => saveAndProceed(
+                              context,
+                              session,
+                              () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => AiReviewScreen(
+                                    session: session,
+                                    repository: widget.repository,
+                                  ),
                                 ),
                               ),
                             )
