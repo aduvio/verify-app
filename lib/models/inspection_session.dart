@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import 'local_media.dart';
+
 import 'package:flutter/foundation.dart';
 
 import 'ai_observation.dart';
@@ -95,6 +97,9 @@ class CaptureAttempt {
   final DateTime createdAt;
   final CaptureKind kind;
   final DataProvenance provenance = DataProvenance.sample;
+  bool realMedia = false;
+  LocalMedia? media;
+  bool mediaSaved = false;
   CaptureStatus status = CaptureStatus.starting;
   Duration duration = Duration.zero;
   DateTime? finishedAt;
@@ -128,6 +133,11 @@ class AuditEvent {
 /// Active demo state only. Mutations go through this boundary so audit and
 /// approval invalidation stay together. No real-service approval is issued.
 class InspectionSession extends ChangeNotifier {
+  final Map<String, Uint8List> pendingMedia = {};
+  Future<Uint8List?> Function(String attemptId)? loadMedia;
+  bool get mediaReady => attempts
+      .where((a) => a.realMedia && a.status == CaptureStatus.accepted)
+      .every((a) => a.media != null && a.mediaSaved);
   final ValueNotifier<SavePhase> savePhase = ValueNotifier(SavePhase.memory);
   Future<bool> Function()? persist;
   bool get persistenceEnabled => persist != null;
@@ -501,7 +511,8 @@ class InspectionSession extends ChangeNotifier {
   List<InspectionStep> get currentSteps =>
       underHoodStage ? underHoodSteps : underVehicleSteps;
   bool get stageComplete => currentSteps.every((s) => s.isComplete);
-  bool get allChecksComplete => requiredSteps.every((s) => s.isComplete);
+  bool get allChecksComplete =>
+      mediaReady && requiredSteps.every((s) => s.isComplete);
   bool get demoReady =>
       active &&
       customer != null &&
@@ -623,10 +634,17 @@ class InspectionSession extends ChangeNotifier {
       editable &&
       demoReady &&
       currentSteps.any((s) => s.id == stepId) &&
+      (stepId != 'oil_filter' || step('drain_plug').isComplete) &&
       (stepId != 'caps_touch' ||
-          (currentCapture('dipstick') != null && dipstickReinserted));
+          (currentCapture('dipstick') != null &&
+              step('dipstick').isComplete &&
+              dipstickReinserted));
 
-  CaptureAttempt beginCapture(String stepId, CaptureKind kind) {
+  CaptureAttempt beginCapture(
+    String stepId,
+    CaptureKind kind, {
+    bool realMedia = false,
+  }) {
     if (!canCapture(stepId) ||
         (kind == CaptureKind.photo
             ? stepId != 'dipstick'
@@ -649,6 +667,7 @@ class InspectionSession extends ChangeNotifier {
       createdAt: clock(),
       kind: kind,
     );
+    attempt.realMedia = realMedia;
     _attempts.add(attempt);
     step(stepId).status = InspectionStepStatus.recording;
     if (stepId == 'dipstick') {
@@ -673,7 +692,7 @@ class InspectionSession extends ChangeNotifier {
       observation.decidedAt = null;
     }
     _invalidate('evidence changed');
-    _event('simulated_capture_started', {
+    _event(realMedia ? 'camera_capture_started' : 'simulated_capture_started', {
       'attempt': attempt.id,
       'step': stepId,
       'kind': kind.name,
@@ -688,7 +707,10 @@ class InspectionSession extends ChangeNotifier {
       return;
     }
     a.status = CaptureStatus.recording;
-    _event('simulated_recording_ready', {'attempt': a.id});
+    _event(
+      a.realMedia ? 'camera_recording_ready' : 'simulated_recording_ready',
+      {'attempt': a.id},
+    );
   }
 
   void finishCapture(CaptureAttempt a, Duration duration) {
@@ -701,8 +723,9 @@ class InspectionSession extends ChangeNotifier {
     a.duration = duration;
     a.finishedAt = clock();
     final enough =
-        a.kind == CaptureKind.photo ||
-        duration >= Duration(seconds: step(a.stepId).minimumSeconds);
+        (!a.realMedia || a.media != null) &&
+        (a.kind == CaptureKind.photo ||
+            duration >= Duration(seconds: step(a.stepId).minimumSeconds));
     a.status = enough ? CaptureStatus.review : CaptureStatus.rejected;
     step(a.stepId).status = enough
         ? InspectionStepStatus.captured
@@ -716,7 +739,8 @@ class InspectionSession extends ChangeNotifier {
   void acceptCapture(CaptureAttempt a) {
     if (!editable ||
         !_attempts.contains(a) ||
-        a.status != CaptureStatus.review) {
+        a.status != CaptureStatus.review ||
+        (a.realMedia && !a.mediaSaved)) {
       return;
     }
     for (final previous in _attempts.where(
@@ -731,7 +755,65 @@ class InspectionSession extends ChangeNotifier {
         ? InspectionStepStatus.captured
         : InspectionStepStatus.confirmed;
     _invalidate('capture accepted');
-    _event('simulated_capture_kept', {'attempt': a.id});
+    _event(a.realMedia ? 'real_media_kept_in_demo' : 'simulated_capture_kept', {
+      'attempt': a.id,
+    });
+  }
+
+  void finishRealCapture(CaptureAttempt a, CapturedMedia result) {
+    if (!editable ||
+        !_attempts.contains(a) ||
+        !a.realMedia ||
+        !(a.status == CaptureStatus.starting ||
+            a.status == CaptureStatus.recording)) {
+      return;
+    }
+    if (result.bytes.isEmpty ||
+        !result.playable ||
+        result.duration.isNegative ||
+        (a.kind == CaptureKind.video && result.duration == Duration.zero)) {
+      cancelCapture(a, failed: true);
+      throw StateError(
+        'Empty, unplayable, or unknown-duration media cannot be accepted.',
+      );
+    }
+    final m = LocalMedia(
+      id: a.id,
+      inspectionId: id,
+      stepId: a.stepId,
+      stage:
+          {
+            'top_filter',
+            'dipstick',
+            'caps_touch',
+            'engine_bay',
+          }.contains(a.stepId)
+          ? 'Under Hood'
+          : 'Under Vehicle',
+      technician: technician,
+      source: result.source,
+      mimeType: result.mimeType,
+      revision: reportRevision,
+      byteSize: result.bytes.length,
+      durationMs: result.duration.inMilliseconds,
+      capturedAt: a.createdAt,
+      checksum: mediaChecksum(result.bytes),
+    );
+    LocalMedia.fromMap(m.toMap());
+    if ((a.kind == CaptureKind.photo) != m.mimeType.startsWith('image/')) {
+      throw StateError('Media format does not match this step.');
+    }
+    a.media = m;
+    pendingMedia[a.id] = Uint8List.fromList(result.bytes);
+    finishCapture(a, result.duration);
+  }
+
+  void mediaWriteConfirmed(Iterable<String> ids) {
+    for (final a in _attempts.where((a) => ids.contains(a.id))) {
+      a.mediaSaved = true;
+      pendingMedia.remove(a.id);
+    }
+    notifyListeners();
   }
 
   void retryCapture(CaptureAttempt a) {
@@ -932,14 +1014,32 @@ Map<String, Object?> projectCustomerReport(InspectionSession session) => {
   'technician': session.technician,
   'createdAt': session.createdAt.toIso8601String(),
   'reportStatus': 'DEMO — NOT A LIVE SERVICE REPORT',
-  'playbackAvailable': false,
+  'playbackAvailable': session.attempts.any(
+    (a) =>
+        a.status == CaptureStatus.accepted && a.media != null && a.mediaSaved,
+  ),
+  if (session.attempts.any(
+    (a) =>
+        a.status == CaptureStatus.accepted && a.media != null && a.mediaSaved,
+  ))
+    'media': session.attempts
+        .where(
+          (a) =>
+              a.status == CaptureStatus.accepted &&
+              a.media != null &&
+              a.mediaSaved,
+        )
+        .map((a) => a.media!.toMap())
+        .toList(),
   'documentedChecks': session.requiredSteps
       .where((s) => s.isComplete)
       .map(
         (s) => {
           'label': s.label,
           'result': session.usesVideo(s.id) || s.id == 'dipstick'
-              ? 'Simulated evidence metadata only — no media captured'
+              ? (session.currentCapture(s.id)?.realMedia == true
+                    ? 'Real captured media in a demo — not proof of service condition'
+                    : 'Simulated evidence metadata only — no media captured')
               : 'Demo technician statement — not independently verified',
           'provenance': DataProvenance.sample.name,
         },

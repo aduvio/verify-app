@@ -9,6 +9,8 @@ import '../services/inspection_repository.dart';
 import '../services/mock_recording_service.dart';
 import '../widgets/session_banner.dart';
 import '../widgets/reason_dialog.dart';
+import '../widgets/real_capture_dialog.dart';
+import '../widgets/local_media_view.dart';
 import 'ai_review_screen.dart';
 
 class GuidedInspectionScreen extends StatefulWidget {
@@ -55,6 +57,24 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
       spacing: 8,
       runSpacing: 8,
       children: [
+        if (video || photo)
+          OutlinedButton.icon(
+            onPressed:
+                !blocked &&
+                    session.canCapture(step.id) &&
+                    session.persistenceEnabled
+                ? () => showRealCapture(
+                    context,
+                    session,
+                    step.id,
+                    photo ? CaptureKind.photo : CaptureKind.video,
+                  )
+                : null,
+            icon: const Icon(Icons.camera_alt),
+            label: Text(
+              photo ? 'USE REAL CAMERA — PHOTO' : 'USE REAL CAMERA — VIDEO',
+            ),
+          ),
         if (video || photo)
           FilledButton.icon(
             key: ValueKey('capture-${step.id}'),
@@ -105,7 +125,9 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
         Text('Demo check: ${step.status.name}'),
         if (current != null)
           Text(
-            'Simulated ${current.kind.name}: ${current.duration.inSeconds}s • metadata only',
+            current.realMedia
+                ? 'Real ${current.kind.name} in a demo: ${current.duration.inMilliseconds / 1000}s • ${current.mediaSaved ? 'saved locally' : 'save required'}'
+                : 'Simulated ${current.kind.name}: ${current.duration.inSeconds}s • metadata only',
           ),
         if (photo)
           Text(
@@ -113,6 +135,23 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                 ? 'Technician confirmed reinsertion.'
                 : 'Photo metadata and reinsertion are separate requirements.',
           ),
+        if (current?.realMedia == true && !current!.mediaSaved)
+          Text(
+            session.pendingMedia.containsKey(current.id)
+                ? 'Media save pending or failed. Retry saving before approval.'
+                : 'Local file is missing or corrupt. Retake this evidence; the required check remains incomplete.',
+          ),
+        if (current?.realMedia == true &&
+            current!.status == CaptureStatus.accepted) ...[
+          const Text('Accepted by the technician — demo inspection.'),
+          if (current.mediaSaved && current.media != null)
+            ExpansionTile(
+              title: const Text('PLAY ACCEPTED LOCAL RECORDING'),
+              children: [
+                LocalMediaView(session: session, media: current.media!),
+              ],
+            ),
+        ],
         if (step.id == 'caps_touch' && !session.dipstickReinserted)
           const Text(
             'First keep the oil-level photo and confirm dipstick reinsertion.',
@@ -274,24 +313,47 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              'Review simulated ${review.kind.name}: ${session.step(review.stepId).label}',
+                              'Review ${review.realMedia ? 'real captured' : 'simulated'} ${review.kind.name}: ${session.step(review.stepId).label}',
+                            ),
+                            if (review.realMedia && review.mediaSaved)
+                              const Text(
+                                'Saved locally, awaiting review — not accepted.',
+                              ),
+                            Text(
+                              review.realMedia
+                                  ? '${review.duration.inMilliseconds / 1000}s finalized media • ${review.mediaSaved ? 'Saved locally' : 'Save required before Keep'} • not proof of service condition'
+                                  : '${review.duration.inSeconds}s • Metadata only; there is no image or video to inspect.',
                             ),
                             Text(
-                              '${review.duration.inSeconds}s • Metadata only; there is no image or video to inspect.',
+                              review.realMedia
+                                  ? 'Review the actual file before Keep. Record Again retains this footage for staff only.'
+                                  : 'Keep this demo attempt or simulate another. Earlier attempts remain internal metadata.',
                             ),
-                            const Text(
-                              'Keep this demo attempt or simulate another. Earlier attempts remain internal metadata.',
-                            ),
+                            if (review.realMedia &&
+                                review.mediaSaved &&
+                                review.media != null)
+                              LocalMediaView(
+                                key: ValueKey(review.id),
+                                session: session,
+                                media: review.media!,
+                              ),
                             Wrap(
                               spacing: 12,
                               runSpacing: 8,
                               children: [
                                 FilledButton(
                                   key: const ValueKey('keep-capture'),
-                                  onPressed: capture.pending
+                                  onPressed:
+                                      capture.pending ||
+                                          (review.realMedia &&
+                                              !review.mediaSaved)
                                       ? null
                                       : capture.keep,
-                                  child: const Text('KEEP DEMO ATTEMPT'),
+                                  child: Text(
+                                    review.realMedia
+                                        ? 'KEEP — RECORDING IS SUFFICIENT'
+                                        : 'KEEP DEMO ATTEMPT',
+                                  ),
                                 ),
                                 OutlinedButton(
                                   key: const ValueKey('retry-capture'),
@@ -317,7 +379,7 @@ class _GuidedInspectionScreenState extends State<GuidedInspectionScreen> {
                     child: const Padding(
                       padding: EdgeInsets.all(18),
                       child: Text(
-                        'AI Guidance (Mock): No glasses, camera, speech, AI analysis, or durable media storage is connected. Tire-pressure confirmation is a technician statement, not an AI-verified measurement.',
+                        'AI Guidance (Mock): No glasses control or AI analysis is connected. Real camera capture is optional and saves locally. Simulations remain metadata only. Tire-pressure confirmation is a technician statement, not an AI-verified measurement.',
                       ),
                     ),
                   ),

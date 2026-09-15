@@ -1,6 +1,6 @@
 # Project Verify — foundation repairs
 
-Current status is summarized in the local persistence section at the end. Earlier
+Current status is summarized in the real local media section at the end. Earlier
 sections are historical checkpoints, including their former memory-only limits.
 
 Scope: SCR-001 intake, SCR-002 guided inspection, SCR-003 advisory review,
@@ -9,8 +9,9 @@ The app is a demo prototype, not a completed service-verification product.
 
 ## Approved product direction
 
-Chalmette pilot with one pair of glasses. Glasses-first operation is intended;
-screen controls are the prototype/fallback. Capture targeted final-verification
+Chalmette pilot with one pair of Ray-Ban Meta glasses as the intended primary
+recording device. Glasses-first operation is intended; the computer camera is
+only a development test device and fallback. Screen controls are the prototype/fallback. Capture targeted final-verification
 clips, not the whole oil change. Drain plug and either filter location require
 five seconds. Under vehicle: drain plug, accessible filter, differential/axle,
 engine underside, residual-oil cleanup. Under hood: top-mounted filter if
@@ -546,3 +547,408 @@ Camera/glasses, actual media files or durable video archiving, AI, specification
 provider lookups, Square, SMS/email, secure report links and cloud hosting remain
 mocked or unavailable. Completion is simulated, never real service approval.
 No SCR-006, production services, live sends, deployment or persistence commit.
+
+## Real local media — September 10, 2026 (current)
+
+### Approved storage checkpoint
+
+Storage checkpoint **23a36ed** (`Add approved browser-local inspection persistence`)
+was committed and successfully pushed to the existing origin/feature branch
+`codex/demo-foundation-repairs`. Checkpoint validation: analyzer clean (6.4s),
+81 tests passed (10s), web build passed (37.7s). User confirmed all three storage
+manual checks passed. No merge, force push, remote changes or generated/runtime
+data in that commit. All media work below remains uncommitted for review.
+
+### Implemented capture, storage and playback
+
+- Separate real-camera buttons in the existing guided steps; explicit simulation
+  remains available. A dialog provides preview, optional microphone narration,
+  explicit ENABLE CAMERA permission action, TAKE ACTUAL PHOTO or START ACTUAL VIDEO,
+  and STOP AND VALIDATE CLIP. No device access on app startup, automatic recording,
+  upload, or fallback to an unlabeled simulation. Errors explain denied permission,
+  missing/busy devices, unsupported format, interruption and decode failure.
+- Browser getUserMedia/MediaRecorder adapter behind CameraService; independent
+  RealCaptureController serializes operations, rejects stale callbacks and releases
+  devices on cancel/disposal. Browser visibility/page-exit handlers stop capture
+  when hidden. An unanswered permission request never becomes consent; late streams
+  are stopped after cancellation. Preview indicates camera/microphone activity.
+- JPEG photos and browser-supported WebM/MP4 recording. A finalized video is decoded
+  through its media timeline to the ended event before duration is accepted; the
+  UI timer and MediaRecorder timeslice interval are not used as duration evidence.
+  Infinite/unavailable container duration is resolved from the playable media
+  timeline; unknown, empty or unplayable output fails. Drain and either filter
+  require at least 5000ms. Validation is muted and bounded by a timeout.
+- Save before Keep, actual photo/video review, and explicit Keep/Record Again.
+  Nothing automatically accepts an inspection check. Drain precedes the under-car
+  filter; adaptive filter location remains; dipstick capture/reinsertion precedes
+  caps. A capture proves a file was captured, not safe service or correct oil level.
+- IndexedDB database version 2 adds a `media` object store without deleting or
+  replacing the existing `inspections` store. Domain schema 2 reads schema 1 records
+  non-destructively. Media bytes and the associated aggregate are written in one
+  atomic transaction with the existing expected-version guard. Immutable media keys
+  include inspection and attempt IDs; new files never replace an earlier file.
+- Metadata includes inspection/attempt/step/stage, report revision, technician/time,
+  source, actual MIME format, measured duration, byte count and corruption checksum.
+  Attempt status remains in the session aggregate. The checksum detects accidental
+  corruption; it is not a cryptographic signature or authenticity guarantee.
+- Save failure retains pending bytes in the open session and the last committed
+  database state. Keep is disabled until media commit succeeds. Retakes preserve
+  old files and attempt history. Required checks cannot recover as complete with
+  missing/corrupt media. Metadata-only simulated captures remain distinctly labeled.
+- SCR-003 groups actual accepted media by under-vehicle/under-hood stage and offers
+  a separate staff-only earlier/rejected section. SCR-004 and completed SCR-005 use
+  immutable accepted media references from their report snapshot. Internal notes,
+  raw AI and rejected/superseded captures never enter a new customer projection.
+  Reopening/replacing evidence leaves earlier report references unchanged.
+- Playback reconstructs temporary URLs from saved bytes and revokes them on disposal;
+  URLs are not the stored evidence. Native video controls appear only after the file
+  can play. Missing/corrupt/unsupported files show an explanation. Saving, save
+  failure, and saved-local states remain distinct. Old open tabs blocking migration
+  produce a save/close/retry message; never clear site data to fix that condition.
+
+### Dependencies and sources
+
+No new package version was downloaded for media. Existing `web` **1.1.1** was
+promoted from transitive to pinned direct dependency (BSD 3-Clause, Dart project).
+Existing `idb_shim` **2.9.8** remains the binary IndexedDB adapter dependency.
+No unrelated version or global software upgrades. Browser APIs live in
+`web/local_media.js` and conditional Dart adapters; native/glasses adapters remain
+future work. Native Flutter builds do not have this camera/playback implementation.
+
+Implementation references: [Dart package:web](https://dart.dev/interop/js-interop/package-web),
+[Flutter HtmlElementView](https://api.flutter.dev/flutter/widgets/HtmlElementView-class.html),
+[getUserMedia permissions/errors](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia),
+[MediaRecorder final data](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event),
+and [media duration semantics](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/duration).
+
+### Validation
+
+- Changed Dart files formatted; JavaScript syntax checks passed.
+- `flutter analyze --no-pub`: passed, no issues (6.3s).
+- `flutter test --no-pub`: **100 passed, 1 explicitly skipped** (11s). The skip
+  is the new browser-only adapter test on the default VM platform; see separate
+  Chrome validation and the optional test-runner stall below.
+- `flutter build web --no-pub`: passed (43.0s), output `build/web`. Wasm dry run
+  succeeded; no Wasm runtime test is claimed.
+
+- Nineteen new deterministic unit/widget tests in `test/real_media_test.dart` cover
+  bytes and ownership, no inspection mixing, cross-runtime checksum stability,
+  4999/5000ms rules for all three drain/filter variants, invalid recordings, save
+  failures, retakes and snapshots, missing/corrupt files, migration/atomic conflict,
+  device errors, overlapping/stale operations, unanswered permissions, and actual
+  dialog button interactions at 360×800 and 1440×1000. Contract fixture byte arrays
+  do not pretend to be physical or browser-decoded recordings.
+- Existing tests retained. Two filter test setups now complete the newly enforced
+  preceding drain step; their minimum-duration/relocation assertions remain intact.
+  Completion's empty-video text assertion now accurately says no real recording was
+  included, since capture is now available. No tests or assertions were weakened.
+- Browser **synthetic canvas**: actual JPEG and video encoding through the production
+  browser adapter, finalized duration validation, native playback readiness, byte
+  retention and decoding after document reload passed. Latest fixture clip: 5481ms,
+  94363 video bytes and 2049 photo bytes. Tracks were released. This is not a
+  physical-camera test.
+- Browser **physical camera/microphone**, after the user's explicit permission:
+  getUserMedia with audio succeeded; actual photo and video capture, final video
+  decoding, local byte storage and decoding after reload passed. Clip: 5487ms,
+  1801899 video bytes; photo: 78527 bytes. No upload occurred. The test requested a
+  microphone track; intelligibility of spoken narration was not listened to or
+  assessed by the agent and remains a user check.
+- The physical and synthetic checks used a separate headless Chrome test profile,
+  not the user's normal retention profile. This verifies actual hardware/browser
+  media APIs, not normal-profile browser-restart acceptance. Browser restart with
+  actual media in the normal profile remains a manual check.
+- Compiled-Dart **actual IndexedDB adapter** fixture passed binary round trip,
+  cross-inspection isolation, atomic stale-write rejection, blocked-upgrade feedback
+  and non-destructive migration, in real Chrome. The memory adapter intentionally
+  does not implement browser version-change events; browser lifecycle coverage is
+  supplied by this actual Chrome check rather than suppressing its error in tests.
+- Optional `flutter test --platform chrome test/browser_store_test.dart` stayed at
+  loading and was cancelled without a result: **unperformed**. That browser-only
+  test is explicitly skipped on VM. The standalone compiled-Dart Chrome adapter
+  check above did complete; it is distinct from the stalled test-runner invocation.
+- Embedded interactive browser automation remained unavailable (`failed to write
+  kernel assets ... The system cannot find the path specified. (os error 3)`).
+  Full end-to-end clicking through all five screens with physical media and normal
+  browser restart was not performed. Widget tests cover UI controls and layouts;
+  headless Chrome covers production browser capture/storage/playback functions.
+
+### Local viewing and repeatable checks
+
+The unchanged app address is **http://127.0.0.1:8765/**. Use the same normal Chrome
+profile; do not alternate localhost/127.0.0.1 or ports. Save and close old tabs if
+they block the new database version. The existing helper serves the updated build.
+To launch again from the project directory:
+
+```powershell
+& 'C:\src\flutter_windows_3.47.2-stable\flutter\bin\flutter.bat' build web --no-pub
+node tools/serve-local.cjs
+```
+
+For developer synthetic verification, copy `test/browser_media_fixture.html` to
+`build/web/`, compile `tools/check_indexed_db.dart` with `dart compile js` to
+`build/web/check_indexed_db.js`, then run `node tools/check-media-browser.cjs` while
+the fixed local server is running. It uses only synthetic canvas media by default.
+Automated physical testing is now disabled in that helper: it refuses the former
+`VERIFY_PHYSICAL=authorized` mode and no longer grants browser permissions.
+Use the visible app for physical testing, with user-approved browser permission,
+device-name confirmation and separate preview/start actions. QA profiles, output
+files and earlier test recordings remain in ignored `build/`; none were deleted.
+
+Three manual checks:
+1. USE REAL CAMERA, optionally enable narration, request permission, record at least
+   six seconds, STOP AND VALIDATE, RETURN TO INSPECTION, review and KEEP REAL MEDIA.
+   Also stop a drain/filter early: it must remain incomplete. Listen to narration.
+2. Capture a real dipstick photo, Keep, then confirm reinsertion before caps. Wait
+   for Saved, reload/reopen the normal browser, and verify photo/video playback in
+   SCR-003 and accepted-only report preview; internal/rejected content stays private.
+3. Complete the demo, reopen with a reason, and replace a clip. Confirm old footage
+   remains staff-only, the earlier completed report keeps its original reference,
+   and fresh manual approvals are required. Do not clear browser/site data.
+
+### Remaining limits and changed files
+
+Service data, specifications, AI, Square and delivery remain mocked/unavailable.
+No AI image interpretation, smart-glasses control, combined/merged customer video,
+secure hosted report, real messaging, cloud backup or production verification.
+Local browser storage can be cleared/evicted and is not backup or evidence-grade
+archiving. No automatic footage deletion/retention policy or quota management UI.
+Large recordings require memory during finalization/loading; use short targeted
+segments. Failed/unsaved bytes can be lost if the tab is closed before retry.
+Authentication, access controls, encryption/key management, secure backup and
+production evidence policy remain necessary before real customer use.
+
+Added: local-media model; camera interface/browser adapters/controller; media-store
+interface; real-capture dialog, media player and evidence-gallery widgets;
+`web/local_media.js`; media/adapter/fixture tests and developer Chrome test tools.
+Modified: session/codec, IndexedDB/repository/browser-store adapters, guided/review/
+report/completion and saved chooser screens, session banner, web bootstrap,
+dependency manifest/lockfile, two existing test files, AGENTS and this document.
+No additional product screen, deployment, live integration or media commit.
+
+### Device clarification and next physical test — September 10
+
+**Ray-Ban Meta glasses:** one pair is the intended primary recording device.
+This build does not connect to or claim support for Ray-Ban Meta. Glasses testing
+is **unperformed**. Exact model/generation, paired phone/OS, SDK compatibility,
+camera/microphone access, recording control, media transfer and other required
+capabilities need verification. No SDK compatibility assumption or integration
+has been added. CameraService isolates browser capture from reusable inspection,
+storage, retake, revision and review logic for a future compatible adapter.
+
+**Computer-camera development/fallback testing:** the earlier physical test above
+was a computer-device test only, not a glasses test. Its results do not establish
+glasses compatibility. A read-only Windows device inventory now lists I940 and
+Microphone (I940); these are proposed test devices, not proof of Chrome's current
+selection. Chrome also has other audio endpoints, so its selected microphone must
+be confirmed rather than assumed. No devices were activated for that inventory.
+
+Before another physical test, identify the camera/microphone, allow time to aim at
+a non-sensitive object and ensure no private conversation is present. The user
+must approve the browser permission themselves. The preview now shows the actual
+stream device labels after permission and before the separate capture action.
+If the names are unavailable or different from the proposed devices, cancel and
+confirm Chrome settings before recording. No automatic permission grant, upload,
+AI transfer or background recording is permitted. Close/cancel stops both devices.
+
+The requested new prepared-scene test is **pending user readiness and browser
+permission**, not counted as completed. Use a short sub-five-second drain/filter
+clip to verify rejection, then a six-second clip to verify finalized duration,
+save/Keep, normal-profile reopening and playback; verify microphone narration by
+listening locally. Preserve earlier footage and all existing safety gates.
+
+Clarification validation: analyzer passed with no issues (6.4s), 100 default tests
+passed with the existing browser-only VM skip (11s), and web build passed (38.5s).
+Synthetic Chrome regression also passed: device-name feedback appears before
+capture, microphone-off status is explicit, the Ray-Ban Meta limitation is shown,
+and a 5480ms fixture clip saved/reloaded/decoded successfully. Actual IndexedDB
+adapter/migration checks passed again. No physical camera or microphone was
+activated during this clarification work. No glasses testing was performed.
+
+### Audio and explicit acceptance diagnosis — September 14, 2026
+
+Physical computer test (user report): actual video recorded and played after
+reload. Audible narration FAILED/UNCONFIRMED: the user heard no sound. This is
+not a completed physical media test. Ray-Ban Meta testing remains unperformed.
+
+Established by code inspection: Include microphone narration defaults OFF.
+When enabled, getUserMedia requests audio along with video; permission errors
+are surfaced without a camera-only fallback. Device labels appear after the
+explicit permission action. The recorder receives that stream. Preview and
+validation playback are intentionally muted; the separate recorded player was
+not explicitly muted or set to zero volume. The earlier clip has no persisted
+narration-request, device, track or audibility diagnostics. Its actual setting,
+permission grant, selected microphone and encoded audio remain UNKNOWN. Track
+presence alone cannot establish audible narration. Browser tooling exposed no
+normal Chrome tabs, so the user's existing recording could not be examined.
+
+Focused corrections: requested narration now requires a live, enabled, unmuted
+audio track at open/start/stop, with actionable Chrome permission/input guidance
+on failure; audio-requested recording excludes the explicit video-only codec
+fallback. Recorded playback explicitly starts unmuted at volume 1, provides a
+Sound On/Off button plus native controls, and asks the listener to confirm audio.
+This does not measure audibility or claim that narration was recorded.
+
+Saving was already separate from acceptance. Keep/Record Again were on the
+Guided Inspection screen behind Return to Inspection. The capture dialog now
+also presents saved-awaiting-review status, playback and explicit KEEP —
+RECORDING IS SUFFICIENT / RECORD AGAIN controls after a successful save. Restored
+review attempts retain those controls on Guided Inspection. Accepted clips have
+an expandable PLAY ACCEPTED LOCAL RECORDING section on their inspection step.
+Rejected short attempts remain blocking/staff-only; retakes retain superseded
+metadata/files and audit history. No schema change, storage reset, file deletion,
+new dependency, upload, physical device access, commit or push was performed.
+
+Validation: flutter analyze passed (no issues); flutter test passed 101 tests
+with one existing browser-only VM skip; flutter build web passed (40.5s).
+Regression widget tests exercise narration opt-in and explicit dialog Keep at
+360px/1440px, plus saved-awaiting-review restoration, manual acceptance, retained
+bytes/audit and accepted status after another reload. Synthetic Chrome checks
+passed missing requested audio rejection, playback mute/unmute controls, and
+local retention/reload of a 5472ms / 111980-byte generated clip. Actual IndexedDB
+adapter/migration synthetic checks passed. These are NOT physical audio results.
+
+Next user test: reload http://127.0.0.1:8765/ in the same normal Chrome profile,
+resume the inspection, use real camera/video, enable microphone narration BEFORE
+requesting permission, approve Chrome's permission and confirm displayed device
+names. Proposed computer fallback devices remain I940 and Microphone (I940),
+not verified current Chrome selections. Prepare a non-sensitive scene, explicitly
+Start Actual Video, say "Project Verify microphone test", and stop after eight
+seconds. Wait for Saved locally, awaiting review; play with Sound On and confirm
+picture/audio, then explicitly Keep. Wait for the session save indicator before
+reloading. Resume and expand Play Accepted Local Recording to listen again.
+Physical audio stays PENDING until the user confirms it is audible after reload.
+
+### Independent microphone selection and measured input — September 14, 2026
+
+Confirmed defect in diagnostic/control coverage: capture used audio:true, leaving
+microphone selection to Chrome's default. There was no independent input selector
+or measured signal display. This does NOT establish that the prior physical
+recording used I940, that the intended microphone was defective, or where its
+sound was lost. Actual previous microphone, permission state, input level,
+encoded audio, tab mute and output device remain unknown. Normal Chrome was not
+exposed to browser automation (only the Codex in-app browser was available).
+
+The browser adapter now enumerates microphones after explicit permission, offers
+Refresh Microphones and Use Selected Microphone, requests the chosen current ID
+with audio.deviceId.exact and video:false, and replaces only the old audio track.
+The actual returned track label is shown. No hardcoded names/IDs, no fallback on
+selection errors. Failed selection retains and identifies the old actual input.
+Switching is locked during recording; pending switches are ignored/released after
+exit. Existing camera service boundary, storage schema, files and audit remain.
+
+Start / Resume Microphone Meter is a separate explicit user button. It resumes
+AudioContext and measures RMS samples from the same track included in the
+recorder stream; no connection to speaker output is made. It shows actual input,
+track readyState, enabled/muted state, analyzer state, numeric RMS and sound
+activity. An inactive analyzer is distinguished from no detected activity.
+Activity threshold is diagnostic (RMS > 0.001), not speech recognition or proof
+of audible narration. Meter/context stop on release, device switch and exit.
+The preview stays muted; that does not change audio-track enabled state.
+
+Recorder review: exact current stream is passed to MediaRecorder, with live audio
+checks; formats use isTypeSupported. Final dataavailable chunks are assembled
+after the stop event and before device release. This matches current recording
+API ordering. No confirmed recorder/storage defect was found. Existing stored
+media is loaded with its original MIME type and checksum-checked bytes; recorded
+player is unmuted/volume 1 by default with user sound controls. Physical file and
+OS/tab output diagnosis still requires observable results in the normal profile.
+
+Validation: analyzer passed (6.7s); default Flutter tests 101 passed, one existing
+browser-only skip; web build passed (41.4s). New isolated synthetic browser tests
+passed: exact independent device ID, actual returned label, stopped old track,
+inactive-before-click analyzer, measured nonzero samples, same meter/recorder
+track, recording-time selection lock, nonzero decoded audio in finalized bytes,
+identical stored bytes/MIME and decoded stored audio, track release, plus existing
+media/save/reload checks (5466ms video). A first 250ms fixture produced an empty
+clip; extending the fixture to 1500ms passed all unchanged audio assertions.
+These tests establish diagnostic wiring only, NOT physical microphone success.
+
+Modified this batch: web/local_media.js, test/browser_media_fixture.html and this
+document. No physical activation, upload, AI transfer, browser data reset, commit
+or push. No changes to minimum duration, Keep/retry, privacy or approval rules.
+
+Next physical checkpoint is ONLY microphone selection and live meter response,
+through the user's permission and explicit testing click. Do not request another
+full recording until the user reports the meter responds to their voice. Physical
+audio remains PENDING until audible saved narration is confirmed after reload.
+
+Browser references consulted:
+- https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
+- https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/enumerateDevices
+- https://www.w3.org/TR/webaudio/
+- https://www.w3.org/TR/mediastream-recording/
+
+### Glasses-native hardware result and iPhone prerequisites — September 15, 2026
+
+PASSED (user-reported): Ray-Ban Meta glasses recorded video with audible
+narration; the user imported and played it on the paired iPhone. This is a
+GLASSES-NATIVE recording/playback test, not Project Verify integration.
+Project Verify glasses connection, capture/control, narration and native iPhone
+storage/playback remain UNIMPLEMENTED/UNTESTED. Manual import is not the final
+product design. Computer-camera audio remains UNRESOLVED; further physical webcam
+testing is PAUSED by user request. These statements supersede prior next-webcam-
+test instructions and the earlier statement that all glasses testing was unperformed.
+
+Read-only project inspection and current official Meta/Apple/Flutter research are
+recorded in [GLASSES_IOS_PREREQUISITES.md](GLASSES_IOS_PREREQUISITES.md), including
+source links, capability distinctions, version blockers and the smallest real
+connection test. DAT 0.9.0 requires iOS 17.2+; the current Meta sample lists Xcode
+26.4+/Swift 6.3+. This project's native target is iOS 15.0 and its native camera,
+store and player remain stubs. No dependency/platform change was made.
+
+Main integration risk: video frames and microphone narration use different
+paths. The official sample does not guarantee glasses microphone selection;
+actual HFP input routing and measured samples must be checked. Simultaneous
+video/audio/photo reliability and usable quality remain physical-test questions.
+Exact glasses generation, firmware, Meta AI version, iPhone/iOS, Mac/toolchain
+access and signing/Meta developer access are missing. The official firmware/app
+compatibility matrix was login-gated; no numeric firmware/app minimum is asserted.
+
+Changed only documentation: AGENTS.md, this file and the new prerequisites note.
+No installed tools, accounts, SDK code, dependency edits, footage transfer, device
+activation, commits or pushes. Existing source changes, browser records and files
+were preserved. Flutter analyze/test/build were not rerun for this documentation-
+only assessment; previous validation results remain historical, not an iOS build.
+
+### Windows-only development / hosted iOS build route — September 15, 2026
+
+User has no Mac access. Assessed Codemagic hosted macOS + TestFlight while keeping
+Windows development and the paired iPhone. Details/citations/costs are appended
+to GLASSES_IOS_PREREQUISITES.md. A personal Mac purchase is not required by this
+route. Codemagic lists a compatible Xcode 26.4.1 image and a personal allowance
+of 500 M2 minutes/month; paid M2 overage is $0.095/min when billing is enabled.
+TestFlight requires paid Apple Developer membership (normally USD $99/year),
+proper distribution signing and App Store Connect, not a free Personal Team.
+TestFlight does not require iPhone Developer Mode/USB Mac pairing; Meta glasses
+Developer Mode and release-channel authorization are independent.
+
+No unsigned compile, signed TestFlight build or physical Project Verify glasses
+test has run. These are three separate checkpoints. Native media/store/player
+adapters remain absent. Exact device/app versions and Meta eligibility are still
+unknown; the official compatibility matrix requires login. Do not buy membership
+or enable cloud billing before those checks. Next single action is iPhone Settings
+> General > About to obtain Model Name and iOS Version. No serial/IMEI needed.
+
+Glasses-native audio/video playback remains user-reported passed; Project Verify
+integration unimplemented; webcam audio unresolved and physical webcam testing
+paused. Documentation only; no tests/builds rerun, code/dependencies changed,
+accounts created, source/media uploaded, SDKs installed, commits or pushes.
+
+### Authorized browser checkpoint before native work — September 15, 2026
+
+User authorized committing/pushing this browser-media checkpoint on the existing
+repair branch, then creating codex/ios-meta-integration. Browser video, local
+save/reload and the five-screen workflow passed user manual tests. Webcam audio
+is still UNRESOLVED and physical webcam testing PAUSED. New microphone selection
+and meter diagnostics passed synthetic tests, not physical narration validation.
+Fresh Windows validation: analyzer clean (7.5s), 101 tests passed / one existing
+browser-only skip (12s), web build passed (40.9s). No real recordings are included
+in git; browser storage and ignored build/test profiles remain local.
+
+User supplied: iPhone 15 Plus / iOS 26.6.2; Ray-Ban Meta Wayfarer 00MJ;
+glasses release 128.0.0.203.324; Meta AI 289.0.0.21.157; Developer Mode ON;
+DAT app installed on glasses, displaying SDK 0.9.0.26.0. Native glasses recording
+with audio works per user. These are user-reported versions, not proof of DAT
+compatibility or Project Verify integration. Codemagic is connected to GitHub.
+Next work is an unsigned iOS connection-test compile; no signing, billing,
+TestFlight publishing, external AI or physical capture is authorized here.

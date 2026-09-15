@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/evidence_gallery.dart';
+import '../models/local_media.dart';
+
 import '../widgets/session_save_boundary.dart';
 
 import '../models/customer.dart';
@@ -179,10 +182,13 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                                   .surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Column(
+                            child: Column(
                               children: [
-                                Icon(Icons.videocam_off_outlined, size: 40),
-                                Text(
+                                const Icon(
+                                  Icons.videocam_off_outlined,
+                                  size: 40,
+                                ),
+                                const Text(
                                   'Watch My Inspection',
                                   style: TextStyle(
                                     fontSize: 22,
@@ -190,12 +196,21 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                                   ),
                                 ),
                                 Text(
-                                  'Playback unavailable. This demo contains simulated metadata, not video files.',
+                                  data['playbackAvailable'] == true
+                                      ? 'Accepted local evidence is below. Combined customer video is not implemented. No hosted customer link or upload.'
+                                      : 'Playback unavailable. This demo contains simulated metadata, not video files.',
                                   textAlign: TextAlign.center,
                                 ),
                               ],
                             ),
                           ),
+                          if (data['media'] is List)
+                            EvidenceGallery(
+                              session: session,
+                              snapshotMedia: (data['media'] as List)
+                                  .map((m) => LocalMedia.fromMap(m as Map))
+                                  .toList(),
+                            ),
                           const SizedBox(height: 20),
                           const Text(
                             'Documented demo checks',

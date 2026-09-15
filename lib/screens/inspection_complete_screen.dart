@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/evidence_gallery.dart';
+import '../models/local_media.dart';
+
 import '../widgets/session_save_boundary.dart';
 
 import '../models/inspection_session.dart';
@@ -198,9 +201,18 @@ class _InspectionCompleteScreenState extends State<InspectionCompleteScreen> {
                         ),
                         Text('Recipient used: ${completed.delivery.recipient}'),
                         const SizedBox(height: 12),
-                        const Text(
-                          'Video unavailable — recording is not connected.',
+                        Text(
+                          data['playbackAvailable'] == true
+                              ? 'Original accepted local media is retained below. Combined customer video is not implemented.'
+                              : 'Video unavailable — no real recording was included in this report.',
                         ),
+                        if (data['media'] is List)
+                          EvidenceGallery(
+                            session: session,
+                            snapshotMedia: (data['media'] as List)
+                                .map((m) => LocalMedia.fromMap(m as Map))
+                                .toList(),
+                          ),
                         const Text('Secure hosting not connected.'),
                         const Text(
                           'Customers will not need an account when secure delivery is connected.',

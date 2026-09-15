@@ -294,6 +294,7 @@ void main() {
     for (final milliseconds in [4999, 5000]) {
       test('$id at ${milliseconds}ms enforces minimum before keep/retry', () {
         final session = readySession();
+        if (id == 'oil_filter') captureAndKeep(session, 'drain_plug');
         if (id == 'top_filter') {
           session.setFilterUnderHood(true);
           completeVehicleStage(session);
@@ -316,6 +317,7 @@ void main() {
 
   test('moving filter keeps required check and invalidates former location evidence', () {
     final session = readySession();
+    captureAndKeep(session, 'drain_plug');
     final previous = captureAndKeep(session, 'oil_filter');
     session.setFilterUnderHood(true);
     expect(

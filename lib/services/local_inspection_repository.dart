@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+
+import '../models/local_media.dart';
+import 'media_store.dart';
 
 import '../models/inspection_session.dart';
 import 'inspection_repository.dart';
@@ -27,7 +31,23 @@ class LocalInspectionRepository extends InMemoryInspectionRepository {
         final row = Map<String, dynamic>.from(records[i] as Map);
         final version = row['storageVersion'] as int;
         if (version < 1) throw const FormatException('Invalid storage version');
-        final s = restoreInspection(row['session']);
+        final available = <String>{};
+        final raw = row['session'] as Map;
+        for (final a in raw['captures'] as List? ?? []) {
+          if ((a as Map)['media'] != null && store is MediaStore) {
+            final m = LocalMedia.fromMap(a['media'] as Map);
+            final bytes = await (store as MediaStore).readMedia(
+              row['id'] as String,
+              m.id,
+            );
+            if (m.inspectionId == row['id'] &&
+                bytes != null &&
+                m.matches(bytes)) {
+              available.add(m.id);
+            }
+          }
+        }
+        final s = restoreInspection(row['session'], availableMedia: available);
         if (row['id'] != s.id) {
           throw const FormatException('Record identity mismatch');
         }
@@ -46,6 +66,10 @@ class LocalInspectionRepository extends InMemoryInspectionRepository {
     final writer = _Writer(s, store, version, debounce, committed);
     _writers[s.id] = writer;
     s.persist = writer.flush;
+    if (store is MediaStore) {
+      s.loadMedia = (attemptId) =>
+          (store as MediaStore).readMedia(s.id, attemptId);
+    }
     s.addListener(writer.changed);
     writer.changed();
   }
@@ -129,7 +153,21 @@ class _Writer {
           return true;
         }
         final snapshot = Map<String, Object?>.from(jsonDecode(encoded) as Map);
-        version = await store.write(session.id, version, snapshot);
+        final media = Map<String, Uint8List>.from(session.pendingMedia);
+        if (media.isNotEmpty) {
+          if (store is! MediaStore) {
+            throw StateError('Binary media storage unavailable');
+          }
+          version = await (store as MediaStore).writeWithMedia(
+            session.id,
+            version,
+            snapshot,
+            media,
+          );
+          session.mediaWriteConfirmed(media.keys);
+        } else {
+          version = await store.write(session.id, version, snapshot);
+        }
         committed = encoded;
         // Repeat using newest state; an older async write never wins over newer edits.
       }

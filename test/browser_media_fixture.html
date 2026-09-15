@@ -1,0 +1,107 @@
+<!doctype html><meta charset="utf-8"><title>Project Verify SYNTHETIC media fixture</title>
+<p>Automated synthetic canvas fixture. No physical camera or microphone.</p>
+<script src="local_media.js"></script>
+<script src="check_indexed_db.js" defer></script>
+<script>
+window.fixtureResult = 'running';
+(async () => {
+  const check = (condition, text) => { if (!condition) throw new Error(text); };
+  const canvas = document.createElement('canvas'); canvas.width = 160; canvas.height = 120;
+  document.body.append(canvas);
+  const ctx = canvas.getContext('2d'); let frame = 0;
+  const timer = setInterval(() => { ctx.fillStyle = frame++ % 2 ? '#245' : '#9c4'; ctx.fillRect(0,0,160,120); ctx.fillStyle='white';ctx.fillText('SYNTHETIC FIXTURE '+frame,5,60); }, 33);
+  const streams = [];
+  // This fixture document alone substitutes a synthetic source, never device access.
+  navigator.mediaDevices.getUserMedia = async () => { const s = canvas.captureStream(30); streams.push(s); return s; };
+  let camera;
+  try {
+    camera = verifyMedia.createCamera();
+    let audioError = '';
+    try { await camera.open(true); } catch (e) { audioError = String(e); }
+    check(audioError.includes('Narration requested') && audioError.includes('Chrome microphone permission'), 'Missing requested microphone silently accepted');
+    camera.dispose();
+    // Isolated synthetic source tests the diagnostic wiring, never physical speech.
+    const videoOnly = navigator.mediaDevices.getUserMedia;
+    const enumerate = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+    const audioContext = new AudioContext(); await audioContext.resume();
+    const oscillator = audioContext.createOscillator();
+    const destination = audioContext.createMediaStreamDestination();
+    oscillator.connect(destination); oscillator.start();
+    let requestedInput, returnedTrack;
+    navigator.mediaDevices.enumerateDevices = async () => [
+      {kind:'audioinput',deviceId:'fixture-a',label:'Fixture microphone A'},
+      {kind:'audioinput',deviceId:'fixture-b',label:'Fixture microphone B'}
+    ];
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      requestedInput = constraints.audio?.deviceId?.exact;
+      const s = constraints.video ? await videoOnly() : new MediaStream();
+      returnedTrack = destination.stream.getAudioTracks()[0].clone();
+      Object.defineProperty(returnedTrack, 'label', {value: requestedInput ? 'Fixture microphone B' : 'Fixture microphone A'});
+      returnedTrack.getSettings = () => ({deviceId:requestedInput || 'fixture-a'});
+      s.addTrack(returnedTrack); streams.push(s); return s;
+    };
+    camera = verifyMedia.createCamera(); document.body.append(camera.preview); await camera.open(true);
+    const oldTrack = returnedTrack;
+    check(camera.preview.textContent.includes('Analyzer inactive'), 'Analyzer started without click');
+    const input = camera.preview.querySelector('select'); input.value = 'fixture-b';
+    const buttons = [...camera.preview.querySelectorAll('button')];
+    buttons.find(b=>b.textContent==='USE SELECTED MICROPHONE').click();
+    await new Promise(r=>setTimeout(r,100));
+    check(requestedInput==='fixture-b', 'Exact selected device ID was not requested');
+    check(oldTrack.readyState==='ended', 'Old microphone left active after switching');
+    check(camera.preview.textContent.includes('Microphone: Fixture microphone B'), 'Actual returned device label missing');
+    buttons.find(b=>b.textContent.includes('START / RESUME')).click();
+    await new Promise(r=>setTimeout(r,400));
+    check(camera.preview.querySelector('meter').value>0, 'Measured fixture audio did not reach meter');
+    await camera.start();
+    await new Promise(r=>setTimeout(r,1500));
+    check(camera.preview.textContent.includes('Recorder uses this track: true'), 'Meter and recorder use different tracks');
+    check(input.disabled, 'Input switching allowed during recording');
+    const audioClip = await camera.stop();
+    const decoded = await audioContext.decodeAudioData(audioClip.bytes.buffer.slice(0));
+    check(decoded.getChannelData(0).some(x=>Math.abs(x)>0.001), 'Finalized fixture recording lost audio samples');
+    check(returnedTrack.readyState==='ended', 'Microphone not released after stop');
+    camera.dispose(); oscillator.stop(); destination.stream.getTracks().forEach(t=>t.stop()); await audioContext.close();
+    navigator.mediaDevices.getUserMedia = videoOnly;
+    navigator.mediaDevices.enumerateDevices = enumerate;
+    camera = verifyMedia.createCamera(); document.body.append(camera.preview);
+    check(camera.preview.textContent.includes('Ray-Ban Meta is not connected'), 'Primary-device limitation not shown');
+    await camera.open(false);
+    check(camera.preview.textContent.includes('Camera:') && camera.preview.textContent.includes('Microphone: OFF'), 'Selected device feedback not shown before capture');
+    const photo = await camera.photo();
+    check(photo.bytes.length > 0 && photo.mimeType === 'image/jpeg', 'Actual photo encoding failed'); camera.dispose();
+    camera = verifyMedia.createCamera(); document.body.append(camera.preview); await camera.open(false); await camera.start();
+    await new Promise(r=>setTimeout(r, 5500));
+    const video = await camera.stop(); camera.dispose();
+    check(video.durationMs >= 5000, 'Final media duration below five seconds: '+video.durationMs);
+    check(video.bytes.length > 0, 'No encoded video bytes');
+    check(streams.every(s=>s.getTracks().every(t=>t.readyState==='ended')), 'Tracks were not released');
+    const player = verifyMedia.player(video.bytes, video.mimeType); document.body.append(player.element);
+    const element = player.element.querySelector('video');
+    await new Promise((resolve,reject)=>{ element.addEventListener('canplay',resolve,{once:true}); element.addEventListener('error',reject,{once:true}); });
+    check(element.controls, 'Playback controls did not become available');
+    check(!element.muted && element.volume === 1, 'Recorded playback starts muted or silent');
+    const sound = player.element.querySelector('button');
+    sound.click(); check(element.muted, 'Mute button failed');
+    sound.click(); check(!element.muted && element.volume === 1, 'Enable sound button failed');
+    // Browser-local byte retention through a page reload in this fixture profile.
+    const db = await new Promise((resolve,reject)=>{ const r=indexedDB.open('verify_synthetic_fixture',1);r.onupgradeneeded=()=>r.result.createObjectStore('bytes');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error); });
+    const tx=db.transaction('bytes','readwrite'); tx.objectStore('bytes').put(video,'clip'); tx.objectStore('bytes').put(photo,'photo');
+    tx.objectStore('bytes').put(audioClip,'audio-clip');
+    await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});
+    const read=db.transaction('bytes'); const r=read.objectStore('bytes').get('clip');
+    const loaded=await new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+    check(loaded.bytes.length===video.bytes.length,'Stored bytes lost');
+    const audioRead = db.transaction('bytes').objectStore('bytes').get('audio-clip');
+    const savedAudio = await new Promise((resolve,reject)=>{audioRead.onsuccess=()=>resolve(audioRead.result);audioRead.onerror=()=>reject(audioRead.error);});
+    check(savedAudio.mimeType===audioClip.mimeType && savedAudio.bytes.every((b,i)=>b===audioClip.bytes[i]), 'Storage changed audio/video bytes or format');
+    const decoder = new AudioContext();
+    const savedDecoded = await decoder.decodeAudioData(savedAudio.bytes.buffer.slice(0));
+    check(savedDecoded.getChannelData(0).some(x=>Math.abs(x)>0.001), 'Stored fixture lost encoded audio');
+    await decoder.close();
+    await verifyMedia.validate(new Blob([loaded.bytes],{type:loaded.mimeType}),false);
+    db.close();player.dispose();
+    window.fixtureResult={passed:true,source:'synthetic canvas; no physical devices',videoBytes:video.bytes.length,photoBytes:photo.bytes.length,durationMs:video.durationMs};
+  } finally { clearInterval(timer); camera?.dispose(); streams.forEach(s=>s.getTracks().forEach(t=>t.stop())); }
+})().catch(e=>window.fixtureResult={passed:false,error:String(e)});
+</script>

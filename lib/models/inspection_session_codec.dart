@@ -4,7 +4,7 @@ part of 'inspection_session.dart';
 /// migrations must be explicit and non-destructive; unknown versions are rejected.
 extension InspectionSessionCodec on InspectionSession {
   Map<String, Object?> toRecord() => {
-    'schema': 1,
+    'schema': 2,
     'id': id,
     'revision': reportRevision,
     'createdAt': createdAt.toIso8601String(),
@@ -66,6 +66,8 @@ extension InspectionSessionCodec on InspectionSession {
             'technician': a.technician,
             'createdAt': a.createdAt.toIso8601String(),
             'kind': a.kind.name,
+            'realMedia': a.realMedia,
+            'media': a.media?.toMap(),
             'provenance': a.provenance.name,
             'status': a.status.name,
             'durationMs': a.duration.inMilliseconds,
@@ -215,12 +217,14 @@ ReportSnapshot _readSnapshot(Object? value, String inspectionId) {
     'vehicle',
     'recommendation',
     'verifiedFacts',
+    'media',
   };
   if (v.keys.any((k) => !allowed.contains(k)) ||
       v['inspectionId'] != inspectionId ||
       v['isDemo'] != true ||
       v['realApproved'] != false ||
-      v['playbackAvailable'] != false ||
+      v['playbackAvailable'] !=
+          (v['media'] is List && (v['media'] as List).isNotEmpty) ||
       (v['verifiedFacts'] as List).isNotEmpty ||
       (v['revision'] as int) < 0) {
     throw const FormatException('Invalid demo snapshot');
@@ -234,6 +238,13 @@ ReportSnapshot _readSnapshot(Object? value, String inspectionId) {
   keys(v['customer'], {'name', 'provenance'});
   keys(v['vehicle'], {'description', 'vin', 'provenance'});
   keys(v['recommendation'], {'text', 'author', 'updatedAt', 'provenance'});
+  for (final value in (v['media'] as List? ?? [])) {
+    final m = LocalMedia.fromMap(value as Map);
+    if (m.inspectionId != inspectionId) {
+      throw const FormatException('Report media owner mismatch');
+    }
+    keys(value, m.toMap().keys.toSet());
+  }
   for (final c in v['documentedChecks'] as List) {
     keys(c, {'label', 'result', 'provenance'});
     if (_recordMap(c)['provenance'] != 'sample') {
@@ -243,9 +254,13 @@ ReportSnapshot _readSnapshot(Object? value, String inspectionId) {
   return ReportSnapshot(inspectionId, v['revision'] as int, v);
 }
 
-InspectionSession restoreInspection(Object? record, {SessionClock? clock}) {
+InspectionSession restoreInspection(
+  Object? record, {
+  SessionClock? clock,
+  Set<String> availableMedia = const {},
+}) {
   final v = _recordMap(record);
-  if (v['schema'] != 1) {
+  if (v['schema'] != 1 && v['schema'] != 2) {
     throw const FormatException(
       'Unsupported inspection schema; record preserved',
     );
@@ -334,8 +349,35 @@ InspectionSession restoreInspection(Object? record, {SessionClock? clock}) {
       kind: CaptureKind.values.byName(c['kind'] as String),
     );
     a.status = CaptureStatus.values.byName(c['status'] as String);
+    a.realMedia = c['realMedia'] as bool? ?? false;
+    if (c['media'] != null) {
+      a.media = LocalMedia.fromMap(c['media'] as Map);
+      if (!a.realMedia ||
+          a.media!.id != a.id ||
+          a.media!.inspectionId != s.id ||
+          a.media!.stepId != a.stepId ||
+          a.media!.stage !=
+              ({
+                    'top_filter',
+                    'dipstick',
+                    'caps_touch',
+                    'engine_bay',
+                  }.contains(a.stepId)
+                  ? 'Under Hood'
+                  : 'Under Vehicle') ||
+          (a.kind == CaptureKind.photo) !=
+              a.media!.mimeType.startsWith('image/') ||
+          a.media!.technician != a.technician ||
+          a.media!.capturedAt != a.createdAt) {
+        throw const FormatException('Media association mismatch');
+      }
+      a.mediaSaved = availableMedia.contains(a.id);
+    }
     a.duration = Duration(milliseconds: c['durationMs'] as int);
     a.finishedAt = _maybeDate(c['finishedAt']);
+    if (a.media != null && a.media!.durationMs != a.duration.inMilliseconds) {
+      throw const FormatException('Media duration mismatch');
+    }
     if (s._attempts.any((old) => old.id == a.id) || a.duration.isNegative) {
       throw const FormatException('Invalid capture metadata');
     }
@@ -436,7 +478,7 @@ InspectionSession restoreInspection(Object? record, {SessionClock? clock}) {
   for (final a in s._attempts) {
     if (a.status == CaptureStatus.starting ||
         a.status == CaptureStatus.recording ||
-        a.status == CaptureStatus.review) {
+        (a.status == CaptureStatus.review && !a.realMedia)) {
       a.status = CaptureStatus.cancelled;
       a.finishedAt = s.clock();
       s.step(a.stepId).status = InspectionStepStatus.needsRetry;
@@ -456,6 +498,7 @@ InspectionSession restoreInspection(Object? record, {SessionClock? clock}) {
       final a = s.currentCapture(step.id);
       if (a == null ||
           a.finishedAt == null ||
+          (a.realMedia && !a.mediaSaved) ||
           a.kind !=
               (step.id == 'dipstick' ? CaptureKind.photo : CaptureKind.video) ||
           a.duration < Duration(seconds: step.minimumSeconds) ||

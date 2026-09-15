@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/evidence_gallery.dart';
+
 import '../widgets/session_save_boundary.dart';
 
 import 'customer_report_screen.dart';
@@ -278,20 +280,25 @@ class _AiReviewScreenState extends State<AiReviewScreen> {
                     ...session.observations.map(observationCard),
                   ]),
                   const SizedBox(height: 16),
-                  card('INSPECTION MEDIA (SIMULATED METADATA)', [
-                    const Text(
-                      'No actual media files or playback. Retakes are retained as internal-only metadata, not durable archives.',
+                  card('INSPECTION MEDIA — DEMO WORKFLOW', [
+                    Text(
+                      session.attempts.any((a) => a.realMedia)
+                          ? 'Real captured files are browser-local evidence of capture, not verified service facts. Earlier/rejected media is staff-only.'
+                          : 'No actual media files or playback. Retakes are retained as internal-only metadata, not durable archives.',
                     ),
+                    EvidenceGallery(session: session, staff: true),
                     if (accepted.isEmpty)
                       const Text('No accepted simulated captures.'),
-                    ...accepted.map(
-                      (a) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Text(
-                          '${session.step(a.stepId).label} • simulated ${a.kind.name} • ${a.duration.inSeconds}s\n${a.technician} • ${a.createdAt.toIso8601String()}',
+                    ...accepted
+                        .where((a) => !a.realMedia)
+                        .map(
+                          (a) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(
+                              '${session.step(a.stepId).label} • simulated ${a.kind.name} • ${a.duration.inSeconds}s\n${a.technician} • ${a.createdAt.toIso8601String()}',
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
                     Text(
                       'Internal attempt history: ${session.attempts.where((a) => a.internalOnly).length} attempts retained.',
                     ),

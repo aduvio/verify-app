@@ -33,7 +33,7 @@ class _SavedInspectionsScreenState extends State<SavedInspectionsScreen> {
     try {
       await widget.repository.initialize();
     } catch (_) {
-      error = 'Local storage could not open. Browser permissions or storage may be unavailable. No records were reset. Retry using the same normal browser profile and address.';
+      error = 'Local storage could not open or its upgrade is blocked. Save and close older Project Verify tabs, then retry. Check browser storage permissions. No records were reset; do not clear site data. Use the same normal browser profile and address.';
     }
     if (mounted) setState(() => loading = false);
   }

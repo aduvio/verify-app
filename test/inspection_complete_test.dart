@@ -351,7 +351,9 @@ void main() {
         );
         expect(find.text('DEMO INSPECTION COMPLETE'), findsOneWidget);
         expect(
-          find.text('Video unavailable — recording is not connected.'),
+          find.text(
+            'Video unavailable — no real recording was included in this report.',
+          ),
           findsOneWidget,
         );
         expect(find.text('Secure hosting not connected.'), findsOneWidget);
