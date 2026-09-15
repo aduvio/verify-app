@@ -1,5 +1,12 @@
 # Glasses-to-iPhone prerequisites — September 15, 2026
 
+**Update after authorization:** Native connection-test source is now on
+`codex/ios-meta-integration`; see [IOS_META_CONNECTION_TEST.md](IOS_META_CONNECTION_TEST.md)
+for current configuration and remaining validation. The assessment below is
+historical: the user has now supplied hardware/software versions and authorized
+the SDK reference, bridge, commits and pushes. No cloud build or physical
+Project Verify glasses test has run. Computer microphone testing remains paused.
+
 Research and project inspection only. No SDK installed, dependency changed,
 account created, device activated or integration implemented.
 

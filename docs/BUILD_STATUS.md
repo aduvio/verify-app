@@ -952,3 +952,66 @@ with audio works per user. These are user-reported versions, not proof of DAT
 compatibility or Project Verify integration. Codemagic is connected to GitHub.
 Next work is an unsigned iOS connection-test compile; no signing, billing,
 TestFlight publishing, external AI or physical capture is authorized here.
+
+### Native Meta connection-test source prepared — September 15, 2026
+
+Browser checkpoint **51d5f3f856871da106386e1b01128d14daf4c978** was pushed to
+`origin/codex/demo-foundation-repairs`. Dedicated `codex/ios-meta-integration`
+was created and pushed from it. This batch is authorized for a final commit/push
+to that integration branch only. Existing recordings and browser storage remain
+local and unchanged; no media was included in either checkpoint.
+
+**Implemented source:** exact SPM **Meta DAT 0.9.0** developer-preview reference,
+Core + Camera products only, minimum iOS 17.2; one-time SDK startup and filtered
+Meta AI callback handling through Flutter's existing implicit-engine/scene
+lifecycle. Info.plist has Developer Mode configuration, Bluetooth/local-network
+declarations and explicit analytics/crash-reporting opt-outs. No secrets/signing
+identity or production Meta configuration added.
+
+Flutter WearablesService + Swift bridge expose status/registration, device
+session start/stop, glasses-camera permission/capability, stream start/stop and
+test-photo capture. The developer-only page requires a non-release build with
+`WEARABLES_TEST=true`; normal SCR-001–005 navigation/appearance is unchanged.
+It shows native states/errors, frame counts and memory-only photos. Commands
+require explicit buttons; pending operations are locked and late results
+invalidated. Background/exit stops the session; capture never auto-resumes.
+
+**Scaffolding / not yet verified:** Swift bridge, SDK dependency resolution,
+Xcode configuration, actual registration, connection, camera/photo reception
+and background cleanup have not run on native iOS. These require a macOS build
+and later a signed physical installation. This is not a complete glasses
+CameraService/storage adapter. Native inspection binary persistence and playback
+are still absent; browser adapters remain web-only. Test photos never satisfy
+inspection evidence/approval requirements and disappear when the session ends.
+
+**Audio finding:** DAT 0.9 Camera provides video frames/photo data, not embedded
+microphone narration. Official Meta guidance/sample uses a separate iOS
+Bluetooth/AVAudioSession + AVAudioEngine input path. That route needs independent
+selection, measurement, synchronization and audible physical playback. No native
+audio path was implemented here; no glasses narration success is claimed for
+Project Verify. User-reported glasses-native narrated recording/playback remains
+PASSED separately. Webcam audio remains UNRESOLVED; physical webcam tests PAUSED.
+
+**Windows validation:** existing locked packages resolved without dependency
+changes (`flutter pub get --enforce-lockfile`); Dart formatted; analyzer clean;
+**108 tests passed, one existing browser-only test skipped** in the default
+suite; web build passed (37.2s). Seven new wearable unit/widget tests cover
+platform unavailability, actual channel contract, state updates, explicit
+button actions, pending-operation serialization, stop/late-result handling,
+error recovery and disposal. Existing inspection/privacy/storage/approval
+regressions passed. Info.plist and Runner scheme XML parsed successfully.
+These are not native Swift, glasses or physical audio tests.
+
+**Prepared, not run:** `codemagic.yaml` workflow **ios-meta-unsigned-debug**
+(iOS Meta unsigned debug compile), branch **codex/ios-meta-integration**,
+M2 / Flutter 3.47.2 / Xcode 26.6. Manual only; resolves Flutter and SPM, then
+`flutter build ios --debug --no-codesign` with the developer page enabled.
+No CI run, billing, signing, TestFlight, deployment or production service enabled.
+SPM resolution and unsigned iOS compilation remain unperformed because this
+computer is Windows. The first cloud run may expose native compile/configuration
+errors. No Apple membership is required for this unsigned compile; Codemagic
+repository/package access and M2 quota must be available. It cannot produce an
+installable TestFlight build or prove hardware connectivity.
+
+See [the connection-test notes](IOS_META_CONNECTION_TEST.md) for API mapping,
+official references, configuration choices and later physical-test boundaries.
